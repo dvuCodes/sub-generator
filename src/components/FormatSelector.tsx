@@ -1,10 +1,12 @@
+import type { OutputFormat } from "../lib/types";
+
 interface FormatSelectorProps {
-  format: string;
-  onChange: (format: string) => void;
+  format: OutputFormat;
+  onChange: (format: OutputFormat) => void;
   disabled?: boolean;
 }
 
-const FORMATS = [
+const FORMATS: { id: OutputFormat; name: string; desc: string }[] = [
   {
     id: "srt",
     name: "SRT",

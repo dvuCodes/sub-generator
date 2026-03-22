@@ -55,8 +55,7 @@ func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) 
 		pipeline.Run(cmd)
 
 	case "list_languages":
-		translator := NewTranslator(svcManager.config.LibreTranslatePort)
-		langs, err := translator.ListLanguages()
+		langs, err := listAvailableLanguages(svcManager)
 		if err != nil {
 			sendError("Failed to list languages", err.Error())
 			return
@@ -90,6 +89,15 @@ func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) 
 	default:
 		sendError("Unknown command", fmt.Sprintf("command '%s' is not recognized", cmd.Command))
 	}
+}
+
+func listAvailableLanguages(svcManager *ServiceManager) ([]LanguagePair, error) {
+	if !svcManager.IsLibreTranslateRunning() {
+		return []LanguagePair{}, nil
+	}
+
+	translator := NewTranslator(svcManager.config.LibreTranslatePort)
+	return translator.ListLanguages()
 }
 
 func sendJSON(v any) {

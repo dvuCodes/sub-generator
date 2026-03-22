@@ -1,10 +1,18 @@
+import type { ModelSize } from "../lib/types";
+
 interface ModelSelectorProps {
-  model: string;
-  onChange: (model: string) => void;
+  model: ModelSize;
+  onChange: (model: ModelSize) => void;
   disabled?: boolean;
 }
 
-const MODELS = [
+const MODELS: {
+  id: ModelSize;
+  name: string;
+  size: string;
+  speed: string;
+  desc: string;
+}[] = [
   {
     id: "tiny",
     name: "Tiny",

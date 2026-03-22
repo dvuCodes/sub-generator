@@ -50,7 +50,6 @@ func (p *Pipeline) Run(cmd Command) {
 	result, err := transcriber.Transcribe(
 		cmd.InputVideo,
 		cmd.SourceLang,
-		cmd.ModelSize,
 		cmd.BeamSize,
 		cmd.VADFilter,
 	)
@@ -148,11 +147,9 @@ func (p *Pipeline) validateInput(path string) error {
 
 func (p *Pipeline) ensureServices(cmd Command) error {
 	// Always need whisper-server for transcription
-	if !p.svcManager.IsWhisperRunning() {
-		sendProgress("starting_services", 25, "Starting whisper-server...")
-		if err := p.svcManager.StartWhisperServer(); err != nil {
-			return fmt.Errorf("whisper-server: %w", err)
-		}
+	sendProgress("starting_services", 25, "Starting whisper-server...")
+	if err := p.svcManager.StartWhisperServer(cmd.ModelSize); err != nil {
+		return fmt.Errorf("whisper-server: %w", err)
 	}
 	sendProgress("starting_services", 50, "whisper-server ready")
 

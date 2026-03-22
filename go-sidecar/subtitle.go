@@ -30,18 +30,18 @@ func (sw *SubtitleWriter) Write(segments []Segment, outputPath string, format st
 			"Default": {
 				ID: "Default",
 				InlineStyle: &astisub.StyleAttributes{
-					SSAFontName:        "Arial Unicode MS",
-					SSAFontSize:        astiFloat(24),
-					SSAPrimaryColour:   astiColor(255, 255, 255), // white
-					SSAOutlineColour:   astiColor(0, 0, 0),       // black outline
-					SSABackColour:      astiColor(0, 0, 0),       // black shadow
-					SSABold:            astiBool(false),
-					SSAOutline:         astiFloat(2),
-					SSAShadow:          astiFloat(1),
-					SSAAlignment:       astiInt(2), // bottom center
-					SSAMarginLeft:      astiInt(10),
-					SSAMarginRight:     astiInt(10),
-					SSAMarginVertical:  astiInt(20),
+					SSAFontName:       "Arial Unicode MS",
+					SSAFontSize:       astiFloat(24),
+					SSAPrimaryColour:  astiColor(255, 255, 255), // white
+					SSAOutlineColour:  astiColor(0, 0, 0),       // black outline
+					SSABackColour:     astiColor(0, 0, 0),       // black shadow
+					SSABold:           astiBool(false),
+					SSAOutline:        astiFloat(2),
+					SSAShadow:         astiFloat(1),
+					SSAAlignment:      astiInt(2), // bottom center
+					SSAMarginLeft:     astiInt(10),
+					SSAMarginRight:    astiInt(10),
+					SSAMarginVertical: astiInt(20),
 				},
 			},
 		}
