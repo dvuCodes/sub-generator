@@ -1,13 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
-import { useSidecar } from "./hooks/useSidecar";
-import { VideoDropzone } from "./components/VideoDropzone";
+import { useCallback, useEffect, useState } from "react";
+import { FormatSelector } from "./components/FormatSelector";
 import { LanguageSelector } from "./components/LanguageSelector";
 import { ModelSelector } from "./components/ModelSelector";
-import { FormatSelector } from "./components/FormatSelector";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { ProcessingView } from "./components/ProcessingView";
 import { OutputResult } from "./components/OutputResult";
-import type { SidecarResponse } from "./lib/types";
+import { ProcessingView } from "./components/ProcessingView";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { VideoDropzone } from "./components/VideoDropzone";
+import { useSidecar } from "./hooks/useSidecar";
+import type {
+  GenerateCommand,
+  LanguagePair,
+  ModelSize,
+  OutputFormat,
+  SidecarResponse,
+} from "./lib/types";
 
 type AppState = "idle" | "processing" | "complete" | "error";
 
@@ -23,20 +29,92 @@ interface CompletionState {
   durationSecs: number;
 }
 
+interface SystemInfoState {
+  whisperServer: boolean;
+  libretranslate: boolean;
+  gpu: string;
+}
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  auto: "Auto-detect",
+  ar: "Arabic",
+  cs: "Czech",
+  da: "Danish",
+  de: "German",
+  el: "Greek",
+  en: "English",
+  es: "Spanish",
+  fi: "Finnish",
+  fr: "French",
+  hi: "Hindi",
+  hu: "Hungarian",
+  id: "Indonesian",
+  it: "Italian",
+  ja: "Japanese",
+  ko: "Korean",
+  ms: "Malay",
+  nl: "Dutch",
+  pl: "Polish",
+  pt: "Portuguese",
+  ro: "Romanian",
+  ru: "Russian",
+  sv: "Swedish",
+  th: "Thai",
+  tl: "Filipino",
+  tr: "Turkish",
+  uk: "Ukrainian",
+  vi: "Vietnamese",
+  zh: "Chinese",
+};
+
+function labelForLanguage(code: string) {
+  return LANGUAGE_LABELS[code] ?? code.toUpperCase();
+}
+
+function buildLanguageOptions(pairs: LanguagePair[]) {
+  if (pairs.length === 0) {
+    return {
+      source: [{ code: "auto", name: labelForLanguage("auto") }],
+      target: [{ code: "", name: "No translation (transcribe only)" }],
+    };
+  }
+
+  const sourceCodes = new Set<string>(["auto"]);
+  const targetCodes = new Set<string>();
+
+  for (const pair of pairs) {
+    sourceCodes.add(pair.source);
+    targetCodes.add(pair.target);
+  }
+
+  const toOptions = (codes: Set<string>) =>
+    Array.from(codes)
+      .sort((left, right) =>
+        labelForLanguage(left).localeCompare(labelForLanguage(right))
+      )
+      .map((code) => ({ code, name: labelForLanguage(code) }));
+
+  return {
+    source: toOptions(sourceCodes),
+    target: [
+      { code: "", name: "No translation (transcribe only)" },
+      ...toOptions(targetCodes),
+    ],
+  };
+}
+
 function App() {
   const { connected, connecting, connect, sendCommand, onResponse } =
     useSidecar();
 
-  // Form state
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [sourceLang, setSourceLang] = useState("auto");
   const [targetLang, setTargetLang] = useState("");
-  const [model, setModel] = useState("base");
-  const [format, setFormat] = useState("srt");
+  const [model, setModel] = useState<ModelSize>("base");
+  const [format, setFormat] = useState<OutputFormat>("srt");
   const [beamSize, setBeamSize] = useState(5);
   const [vadFilter, setVadFilter] = useState(true);
 
-  // App state
   const [appState, setAppState] = useState<AppState>("idle");
   const [processing, setProcessing] = useState<ProcessingState>({
     stage: "",
@@ -44,9 +122,10 @@ function App() {
     message: "",
   });
   const [completion, setCompletion] = useState<CompletionState | null>(null);
+  const [systemInfo, setSystemInfo] = useState<SystemInfoState | null>(null);
+  const [availablePairs, setAvailablePairs] = useState<LanguagePair[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Auto-connect sidecar on mount
   useEffect(() => {
     connect().catch((err) => {
       setErrorMsg(`Failed to start backend: ${err}`);
@@ -54,7 +133,6 @@ function App() {
     });
   }, [connect]);
 
-  // Handle sidecar responses
   useEffect(() => {
     onResponse((response: SidecarResponse) => {
       switch (response.type) {
@@ -80,13 +158,49 @@ function App() {
           });
           setAppState("complete");
           break;
+        case "languages":
+          setAvailablePairs(response.installed);
+          setSystemInfo((prev) =>
+            prev
+              ? { ...prev, libretranslate: true }
+              : {
+                  whisperServer: false,
+                  libretranslate: true,
+                  gpu: "unknown",
+                }
+          );
+          break;
+        case "system_info":
+          setSystemInfo({
+            whisperServer: response.whisper_server,
+            libretranslate: response.libretranslate,
+            gpu: response.gpu,
+          });
+          break;
         case "error":
-          setErrorMsg(response.message);
+          setErrorMsg(
+            response.details
+              ? `${response.message}: ${response.details}`
+              : response.message
+          );
           setAppState("error");
           break;
       }
     });
   }, [onResponse]);
+
+  useEffect(() => {
+    if (!connected) {
+      return;
+    }
+
+    sendCommand({ command: "system_info" }).catch((err) => {
+      console.error("Failed to request system info:", err);
+    });
+    sendCommand({ command: "list_languages" }).catch((err) => {
+      console.error("Failed to request language list:", err);
+    });
+  }, [connected, sendCommand]);
 
   const handleGenerate = useCallback(async () => {
     if (!videoPath || !connected) return;
@@ -96,17 +210,18 @@ function App() {
     setErrorMsg("");
 
     try {
-      await sendCommand({
+      const command: GenerateCommand = {
         command: "generate",
         input_video: videoPath,
         source_lang: sourceLang === "auto" ? null : sourceLang,
         target_lang: targetLang || null,
-        output_format: format as "srt" | "ass" | "vtt",
+        output_format: format,
         output_path: null,
-        model_size: model as any,
+        model_size: model,
         beam_size: beamSize,
         vad_filter: vadFilter,
-      });
+      };
+      await sendCommand(command);
     } catch (err) {
       setErrorMsg(`Failed to send command: ${err}`);
       setAppState("error");
@@ -132,10 +247,13 @@ function App() {
   }, []);
 
   const isProcessing = appState === "processing";
+  const languageOptions = buildLanguageOptions(availablePairs);
+  const translationStatus = systemInfo?.libretranslate
+    ? `LibreTranslate ready. ${languageOptions.target.length - 1} translation targets available.`
+    : "LibreTranslate will start automatically when translation is needed.";
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Header */}
       <header className="border-b border-gray-800 px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div>
@@ -143,10 +261,15 @@ function App() {
             <p className="text-xs text-gray-500">
               Local Video Subtitle Generator
             </p>
+            <p className="mt-1 text-xs text-gray-600">
+              Whisper: {systemInfo?.whisperServer ? "ready" : "idle"} |
+              Translation: {systemInfo?.libretranslate ? "ready" : "idle"} |
+              GPU: {systemInfo?.gpu || "unknown"}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <div
-              className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : connecting ? "bg-yellow-500 animate-pulse" : "bg-red-500"}`}
+              className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : connecting ? "animate-pulse bg-yellow-500" : "bg-red-500"}`}
             />
             <span className="text-xs text-gray-500">
               {connected
@@ -159,7 +282,6 @@ function App() {
         </div>
       </header>
 
-      {/* Main content */}
       <main className="max-w-2xl mx-auto px-6 py-8 space-y-6">
         {appState === "complete" && completion ? (
           <OutputResult
@@ -170,37 +292,35 @@ function App() {
           />
         ) : (
           <>
-            {/* Video selection */}
             <VideoDropzone
               selectedFile={videoPath}
               onFileSelect={setVideoPath}
               disabled={isProcessing}
             />
 
-            {/* Language selection */}
             <LanguageSelector
               sourceLang={sourceLang}
               targetLang={targetLang}
               onSourceChange={setSourceLang}
               onTargetChange={setTargetLang}
+              sourceLanguages={languageOptions.source}
+              targetLanguages={languageOptions.target}
+              translationStatus={translationStatus}
               disabled={isProcessing}
             />
 
-            {/* Model selection */}
             <ModelSelector
               model={model}
               onChange={setModel}
               disabled={isProcessing}
             />
 
-            {/* Format selection */}
             <FormatSelector
               format={format}
               onChange={setFormat}
               disabled={isProcessing}
             />
 
-            {/* Advanced settings */}
             <SettingsPanel
               beamSize={beamSize}
               vadFilter={vadFilter}
@@ -209,7 +329,6 @@ function App() {
               disabled={isProcessing}
             />
 
-            {/* Processing view */}
             {isProcessing && (
               <ProcessingView
                 stage={processing.stage}
@@ -218,29 +337,27 @@ function App() {
               />
             )}
 
-            {/* Error display */}
             {appState === "error" && errorMsg && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                <p className="text-red-400 text-sm">{errorMsg}</p>
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+                <p className="text-sm text-red-400">{errorMsg}</p>
                 <button
                   onClick={() => setAppState("idle")}
-                  className="mt-2 text-xs text-red-400 hover:text-red-300 underline"
+                  className="mt-2 text-xs text-red-400 underline hover:text-red-300"
                 >
                   Dismiss
                 </button>
               </div>
             )}
 
-            {/* Generate button */}
             <button
               onClick={handleGenerate}
               disabled={!videoPath || !connected || isProcessing}
               className={`
-                w-full py-3 rounded-lg font-medium text-lg transition-all
+                w-full rounded-lg py-3 text-lg font-medium transition-all
                 ${
                   !videoPath || !connected || isProcessing
-                    ? "bg-gray-700 text-gray-400 cursor-not-allowed"
-                    : "bg-blue-600 hover:bg-blue-500 text-white"
+                    ? "cursor-not-allowed bg-gray-700 text-gray-400"
+                    : "bg-blue-600 text-white hover:bg-blue-500"
                 }
               `}
             >

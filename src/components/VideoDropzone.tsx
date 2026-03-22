@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 
 interface VideoDropzoneProps {
   selectedFile: string | null;
@@ -25,26 +25,28 @@ export function VideoDropzone({
   const [isDragOver, setIsDragOver] = useState(false);
 
   const handleBrowse = useCallback(async () => {
-    // Use Tauri dialog to pick a file
     const { open: openDialog } = await import("@tauri-apps/plugin-dialog");
     const selected = await openDialog({
       multiple: false,
       filters: [
         {
           name: "Video Files",
-          extensions: SUPPORTED_EXTENSIONS.map((ext) => ext.slice(1)),
+          extensions: SUPPORTED_EXTENSIONS.map((extension) => extension.slice(1)),
         },
       ],
     });
+
     if (selected) {
       onFileSelect(selected as string);
     }
   }, [onFileSelect]);
 
   const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      if (!disabled) setIsDragOver(true);
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      if (!disabled) {
+        setIsDragOver(true);
+      }
     },
     [disabled]
   );
@@ -54,20 +56,26 @@ export function VideoDropzone({
   }, []);
 
   const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
+    (event: React.DragEvent) => {
+      event.preventDefault();
       setIsDragOver(false);
-      if (disabled) return;
+      if (disabled) {
+        return;
+      }
 
-      const files = e.dataTransfer.files;
-      if (files.length > 0) {
-        const file = files[0];
-        const ext = "." + file.name.split(".").pop()?.toLowerCase();
-        if (SUPPORTED_EXTENSIONS.includes(ext)) {
-          // Note: In Tauri, drag-and-drop gives us a path via the drop event
-          // For now, use the file browser as the primary method
-          onFileSelect(file.name);
-        }
+      const file = event.dataTransfer.files[0];
+      if (!file) {
+        return;
+      }
+
+      const extension = "." + file.name.split(".").pop()?.toLowerCase();
+      if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+        return;
+      }
+
+      const droppedPath = (file as File & { path?: string }).path;
+      if (droppedPath) {
+        onFileSelect(droppedPath);
       }
     },
     [disabled, onFileSelect]
@@ -78,9 +86,9 @@ export function VideoDropzone({
   return (
     <div
       className={`
-        border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer
+        cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-all
         ${isDragOver ? "border-blue-400 bg-blue-400/10" : "border-gray-700 hover:border-gray-500"}
-        ${disabled ? "opacity-50 cursor-not-allowed" : ""}
+        ${disabled ? "cursor-not-allowed opacity-50" : ""}
         ${selectedFile ? "border-green-500/50 bg-green-500/5" : ""}
       `}
       onDragOver={handleDragOver}
@@ -90,17 +98,26 @@ export function VideoDropzone({
     >
       {selectedFile ? (
         <div className="space-y-2">
-          <div className="text-4xl">🎬</div>
-          <p className="text-green-400 font-medium">{fileName}</p>
-          <p className="text-gray-500 text-sm">Click to change file</p>
+          <div className="text-xs uppercase tracking-[0.35em] text-green-400">
+            Selected
+          </div>
+          <p className="font-medium text-green-400">{fileName}</p>
+          <p className="text-sm text-gray-500">
+            Click to choose a different file
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="text-4xl">📁</div>
-          <p className="text-gray-300 font-medium">
+          <div className="text-xs uppercase tracking-[0.35em] text-gray-500">
+            Input Video
+          </div>
+          <p className="font-medium text-gray-300">
             Click to select a video file
           </p>
-          <p className="text-gray-500 text-sm">
+          <p className="text-sm text-gray-500">
+            Drop works when the desktop runtime exposes a file path.
+          </p>
+          <p className="text-xs text-gray-600">
             Supports: {SUPPORTED_EXTENSIONS.join(", ")}
           </p>
         </div>
