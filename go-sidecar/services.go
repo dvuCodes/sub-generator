@@ -162,6 +162,10 @@ func (sm *ServiceManager) IsLibreTranslateRunning() bool {
 	return isServiceHealthy(localServiceURL(sm.config.LibreTranslatePort, "/languages"))
 }
 
+func (sm *ServiceManager) LibreTranslatePort() int {
+	return sm.config.LibreTranslatePort
+}
+
 func isServiceHealthy(url string) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(url)

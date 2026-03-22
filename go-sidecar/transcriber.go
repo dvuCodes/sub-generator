@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,45 +38,18 @@ type whisperSegment struct {
 
 func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, beamSize int, vadFilter bool) (*TranscriptionResult, error) {
 	// Open the video file
-	file, err := os.Open(videoPath)
+	req, contentType, cleanup, err := newInferenceRequest(
+		t.baseURL+"/inference",
+		videoPath,
+		sourceLang,
+		beamSize,
+		vadFilter,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open video file: %w", err)
+		return nil, err
 	}
-	defer file.Close()
-
-	// Create multipart form
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
-	// Add the file
-	part, err := writer.CreateFormFile("file", filepath.Base(videoPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create form file: %w", err)
-	}
-	if _, err := io.Copy(part, file); err != nil {
-		return nil, fmt.Errorf("failed to copy file: %w", err)
-	}
-
-	// Add parameters
-	_ = writer.WriteField("response_format", "json")
-	_ = writer.WriteField("temperature", "0")
-	_ = writer.WriteField("beam_size", strconv.Itoa(beamSize))
-	_ = writer.WriteField("vad_filter", strconv.FormatBool(vadFilter))
-
-	if sourceLang != nil && *sourceLang != "" {
-		_ = writer.WriteField("language", *sourceLang)
-	}
-
-	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
-	}
-
-	// Create request
-	req, err := http.NewRequest("POST", t.baseURL+"/inference", &buf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	defer cleanup()
+	req.Header.Set("Content-Type", contentType)
 
 	// Send request
 	resp, err := t.client.Do(req)
@@ -115,4 +87,78 @@ func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, beamSize 
 
 func (t *Transcriber) IsHealthy() bool {
 	return isServiceHealthy(t.baseURL + "/health")
+}
+
+func newInferenceRequest(
+	url string,
+	videoPath string,
+	sourceLang *string,
+	beamSize int,
+	vadFilter bool,
+) (*http.Request, string, func(), error) {
+	file, err := os.Open(videoPath)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("failed to open video file: %w", err)
+	}
+
+	pipeReader, pipeWriter := io.Pipe()
+	writer := multipart.NewWriter(pipeWriter)
+	contentType := writer.FormDataContentType()
+
+	req, err := http.NewRequest("POST", url, pipeReader)
+	if err != nil {
+		_ = pipeReader.Close()
+		_ = pipeWriter.Close()
+		_ = file.Close()
+		return nil, "", nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	go func() {
+		defer file.Close()
+
+		closeWithError := func(err error) {
+			_ = pipeWriter.CloseWithError(err)
+		}
+
+		part, err := writer.CreateFormFile("file", filepath.Base(videoPath))
+		if err != nil {
+			closeWithError(fmt.Errorf("failed to create form file: %w", err))
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			closeWithError(fmt.Errorf("failed to copy file: %w", err))
+			return
+		}
+		if err := writer.WriteField("response_format", "json"); err != nil {
+			closeWithError(fmt.Errorf("failed to write response_format: %w", err))
+			return
+		}
+		if err := writer.WriteField("temperature", "0"); err != nil {
+			closeWithError(fmt.Errorf("failed to write temperature: %w", err))
+			return
+		}
+		if err := writer.WriteField("beam_size", strconv.Itoa(beamSize)); err != nil {
+			closeWithError(fmt.Errorf("failed to write beam_size: %w", err))
+			return
+		}
+		if err := writer.WriteField("vad_filter", strconv.FormatBool(vadFilter)); err != nil {
+			closeWithError(fmt.Errorf("failed to write vad_filter: %w", err))
+			return
+		}
+		if sourceLang != nil && *sourceLang != "" {
+			if err := writer.WriteField("language", *sourceLang); err != nil {
+				closeWithError(fmt.Errorf("failed to write language: %w", err))
+				return
+			}
+		}
+		if err := writer.Close(); err != nil {
+			closeWithError(fmt.Errorf("failed to close multipart writer: %w", err))
+			return
+		}
+		_ = pipeWriter.Close()
+	}()
+
+	return req, contentType, func() {
+		_ = req.Body.Close()
+	}, nil
 }
