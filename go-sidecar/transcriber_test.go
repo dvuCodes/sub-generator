@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +57,49 @@ func TestTranscribeForwardsConfiguredInferenceOptions(t *testing.T) {
 	}
 	if gotVADFilter != "false" {
 		t.Fatalf("vad_filter = %q, want %q", gotVADFilter, "false")
+	}
+}
+
+func TestNewInferenceRequestStreamsMultipartBody(t *testing.T) {
+	videoPath := writeTempVideoFile(t)
+	sourceLang := "ja"
+
+	req, contentType, cleanup, err := newInferenceRequest(
+		"http://localhost:8080/inference",
+		videoPath,
+		&sourceLang,
+		7,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("newInferenceRequest() error = %v", err)
+	}
+	defer cleanup()
+
+	if got := reflect.TypeOf(req.Body).String(); got != "*io.PipeReader" {
+		t.Fatalf("request body type = %s, want *io.PipeReader for a streaming body", got)
+	}
+	if contentType == "" {
+		t.Fatal("contentType should not be empty")
+	}
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	body := string(bodyBytes)
+	for _, fragment := range []string{
+		`name="language"`,
+		"\r\nja\r\n",
+		`name="beam_size"`,
+		"\r\n7\r\n",
+		`name="vad_filter"`,
+		"\r\nfalse\r\n",
+		`filename="sample.mp4"`,
+	} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("multipart body missing %q in %q", fragment, body)
+		}
 	}
 }
 

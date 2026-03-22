@@ -35,8 +35,9 @@ type translateResponse struct {
 }
 
 type libreTranslateLanguage struct {
-	Code string `json:"code"`
-	Name string `json:"name"`
+	Code    string   `json:"code"`
+	Name    string   `json:"name"`
+	Targets []string `json:"targets"`
 }
 
 func (t *Translator) Translate(text, sourceLang, targetLang string) (string, error) {
@@ -149,8 +150,28 @@ func (t *Translator) ListLanguages() ([]LanguagePair, error) {
 		return nil, fmt.Errorf("failed to parse languages response: %w", err)
 	}
 
-	// Build all available pairs
+	// Prefer the explicit target matrix from LibreTranslate when available.
 	var pairs []LanguagePair
+	hasDeclaredTargets := false
+	for _, src := range languages {
+		if len(src.Targets) > 0 {
+			hasDeclaredTargets = true
+		}
+		for _, tgt := range src.Targets {
+			if src.Code != tgt {
+				pairs = append(pairs, LanguagePair{
+					Source: src.Code,
+					Target: tgt,
+				})
+			}
+		}
+	}
+
+	if hasDeclaredTargets {
+		return pairs, nil
+	}
+
+	// Older LibreTranslate responses may omit targets; fall back to a full matrix then.
 	for _, src := range languages {
 		for _, tgt := range languages {
 			if src.Code != tgt.Code {
