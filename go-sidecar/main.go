@@ -9,6 +9,20 @@ import (
 	"syscall"
 )
 
+type libreTranslateService interface {
+	IsLibreTranslateRunning() bool
+	StartLibreTranslate() error
+	LibreTranslatePort() int
+}
+
+type languageLister interface {
+	ListLanguages() ([]LanguagePair, error)
+}
+
+var newLanguageLister = func(port int) languageLister {
+	return NewTranslator(port)
+}
+
 func main() {
 	svcConfig := DefaultServiceConfig()
 	svcManager := NewServiceManager(svcConfig)
@@ -91,13 +105,14 @@ func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) 
 	}
 }
 
-func listAvailableLanguages(svcManager *ServiceManager) ([]LanguagePair, error) {
+func listAvailableLanguages(svcManager libreTranslateService) ([]LanguagePair, error) {
 	if !svcManager.IsLibreTranslateRunning() {
-		return []LanguagePair{}, nil
+		if err := svcManager.StartLibreTranslate(); err != nil {
+			return nil, err
+		}
 	}
 
-	translator := NewTranslator(svcManager.config.LibreTranslatePort)
-	return translator.ListLanguages()
+	return newLanguageLister(svcManager.LibreTranslatePort()).ListLanguages()
 }
 
 func sendJSON(v any) {

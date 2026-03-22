@@ -14,6 +14,7 @@
 - If the Tauri app uses `externalBin` sidecars, verify the bundled sidecar executable is rebuilt when `go-sidecar/` changes.
 - Always mark tasks off when complete.
 - After every correction to assumptions/process, update this `AGENTS.md`.
+- When testing streamed Go HTTP request bodies, do not rely on `ContentLength`; assert the streaming mechanism itself (for example `io.PipeReader`) or read behavior instead.
 - When making file edits, use the Codex `apply_patch` tool (do not embed `apply_patch` inside shell commands).
 - Do not propose follow-up tasks or enhancements at the end of your final answer.
 - When working on frontend design, use playwright to test and confirm desired feature implemention.
