@@ -18,7 +18,7 @@ type Translator struct {
 
 func NewTranslator(port int) *Translator {
 	return &Translator{
-		baseURL:    fmt.Sprintf("http://localhost:%d", port),
+		baseURL:    localServiceBaseURL(port),
 		client:     &http.Client{Timeout: 30 * time.Second},
 		maxWorkers: 4, // Concurrent translation requests
 	}

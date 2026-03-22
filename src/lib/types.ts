@@ -1,12 +1,22 @@
-// IPC Commands (Frontend → Go sidecar)
+// IPC commands (frontend -> Go sidecar)
+export type ModelSize =
+  | "tiny"
+  | "base"
+  | "small"
+  | "medium"
+  | "large-v3"
+  | "turbo";
+
+export type OutputFormat = "srt" | "ass" | "vtt";
+
 export interface GenerateCommand {
   command: "generate";
   input_video: string;
   source_lang: string | null;
   target_lang: string | null;
-  output_format: "srt" | "ass" | "vtt";
+  output_format: OutputFormat;
   output_path: string | null;
-  model_size: "tiny" | "base" | "small" | "medium" | "large-v3" | "turbo";
+  model_size: ModelSize;
   beam_size: number;
   vad_filter: boolean;
 }
@@ -34,7 +44,7 @@ export type SidecarCommand =
   | StartServicesCommand
   | StopServicesCommand;
 
-// IPC Responses (Go sidecar → Frontend)
+// IPC responses (Go sidecar -> frontend)
 export interface ProgressResponse {
   type: "progress";
   stage: string;
