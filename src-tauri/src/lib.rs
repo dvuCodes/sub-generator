@@ -1,17 +1,19 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
-use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
 struct SidecarState {
-    child: Mutex<Option<CommandChild>>,
+    child: Arc<Mutex<Option<CommandChild>>>,
 }
 
 #[tauri::command]
-async fn spawn_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>) -> Result<(), String> {
+async fn spawn_sidecar(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SidecarState>,
+) -> Result<(), String> {
     let mut child_lock = state.child.lock().map_err(|e| e.to_string())?;
 
-    // Already running
     if child_lock.is_some() {
         return Ok(());
     }
@@ -28,8 +30,9 @@ async fn spawn_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarSta
     *child_lock = Some(child);
     drop(child_lock);
 
-    // Spawn a task to listen for sidecar output and emit events to the frontend
     let app_handle = app.clone();
+    let child_state = Arc::clone(&state.child);
+
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
@@ -43,23 +46,31 @@ async fn spawn_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarSta
                     eprintln!("[sidecar stderr] {}", line_str);
                 }
                 CommandEvent::Terminated(payload) => {
+                    clear_child_state(&child_state);
                     let _ = app_handle.emit("sidecar-terminated", payload.code);
-                    break;
+                    return;
                 }
                 CommandEvent::Error(err) => {
+                    clear_child_state(&child_state);
                     let _ = app_handle.emit("sidecar-error", err.clone());
                     eprintln!("[sidecar error] {}", err);
+                    return;
                 }
                 _ => {}
             }
         }
+
+        clear_child_state(&child_state);
     });
 
     Ok(())
 }
 
 #[tauri::command]
-async fn send_to_sidecar(message: String, state: tauri::State<'_, SidecarState>) -> Result<(), String> {
+async fn send_to_sidecar(
+    message: String,
+    state: tauri::State<'_, SidecarState>,
+) -> Result<(), String> {
     let mut child_lock = state.child.lock().map_err(|e| e.to_string())?;
 
     if let Some(ref mut child) = *child_lock {
@@ -89,13 +100,19 @@ async fn kill_sidecar(state: tauri::State<'_, SidecarState>) -> Result<(), Strin
     Ok(())
 }
 
+fn clear_child_state<T>(child: &Arc<Mutex<Option<T>>>) {
+    if let Ok(mut child_lock) = child.lock() {
+        *child_lock = None;
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(SidecarState {
-            child: Mutex::new(None),
+            child: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             spawn_sidecar,
@@ -114,4 +131,19 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clear_child_state;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn clear_child_state_resets_tracked_process() {
+        let child = Arc::new(Mutex::new(Some(42_u8)));
+
+        clear_child_state(&child);
+
+        assert!(child.lock().unwrap().is_none());
+    }
 }

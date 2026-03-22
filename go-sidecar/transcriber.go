@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -19,7 +20,7 @@ type Transcriber struct {
 
 func NewTranscriber(port int) *Transcriber {
 	return &Transcriber{
-		baseURL: fmt.Sprintf("http://localhost:%d", port),
+		baseURL: localServiceBaseURL(port),
 		client:  &http.Client{Timeout: 30 * time.Minute}, // Long timeout for large files
 	}
 }
@@ -36,7 +37,7 @@ type whisperSegment struct {
 	Text  string  `json:"text"`
 }
 
-func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, modelSize string, beamSize int, vadFilter bool) (*TranscriptionResult, error) {
+func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, beamSize int, vadFilter bool) (*TranscriptionResult, error) {
 	// Open the video file
 	file, err := os.Open(videoPath)
 	if err != nil {
@@ -60,6 +61,8 @@ func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, modelSize
 	// Add parameters
 	_ = writer.WriteField("response_format", "json")
 	_ = writer.WriteField("temperature", "0")
+	_ = writer.WriteField("beam_size", strconv.Itoa(beamSize))
+	_ = writer.WriteField("vad_filter", strconv.FormatBool(vadFilter))
 
 	if sourceLang != nil && *sourceLang != "" {
 		_ = writer.WriteField("language", *sourceLang)
