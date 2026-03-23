@@ -69,7 +69,12 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start whisper-server %q: %w", whisperBinary, err)
+		return normalizeWhisperStartupError(
+			sm.config.SearchRoots,
+			whisperBinary,
+			whisperModel,
+			fmt.Errorf("failed to start whisper-server %q: %w", whisperBinary, err),
+		)
 	}
 
 	sm.mu.Lock()
@@ -258,6 +263,22 @@ func missingWhisperSetupError(searchRoots []string, binaryPath, modelPath string
 	return fmt.Errorf("%s.", message)
 }
 
+func normalizeWhisperStartupError(searchRoots []string, binaryPath, modelPath string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if !isMissingWhisperExecutableError(err.Error()) {
+		return err
+	}
+
+	missingModel := false
+	if info, statErr := os.Stat(modelPath); statErr != nil || info.IsDir() {
+		missingModel = true
+	}
+
+	return missingWhisperSetupError(searchRoots, binaryPath, modelPath, true, missingModel)
+}
+
 func preferredWhisperInstallDir(searchRoots []string) string {
 	for _, root := range normalizeSearchRoots(searchRoots) {
 		candidate := filepath.Join(root, "services", "whisper-server")
@@ -293,6 +314,16 @@ func validateCommandAvailability(commandPath, displayName string) error {
 	}
 
 	return nil
+}
+
+func isMissingWhisperExecutableError(message string) bool {
+	normalized := strings.ToLower(message)
+	if !strings.Contains(normalized, "whisper-server") {
+		return false
+	}
+
+	return strings.Contains(normalized, "not found in path") ||
+		strings.Contains(normalized, "executable file not found")
 }
 
 func isPathReference(path string) bool {
