@@ -13,10 +13,14 @@
 - If `rg.exe` is blocked in PowerShell, use `Select-String` and `Get-ChildItem` as the repository search fallback.
 - If the Tauri app uses `externalBin` sidecars, verify the bundled sidecar executable is rebuilt when `go-sidecar/` changes.
 - For `tauri dev`, avoid rebuilding or recopying the sidecar on unrelated Rust/UI changes; only refresh the dev copies when `go-sidecar/` is newer, otherwise Windows can fail on a locked `subgen-sidecar.exe`.
+- In WSL/Linux dev shells, ensure `go` is installed and on `PATH` before running `tauri dev`; the sidecar is built from `go-sidecar/` during the Tauri build and otherwise fails before the app starts.
 - If a dev sidecar copy is locked during `tauri dev`, warn and continue the rebuild; only require the user to close the active app when they need the newly built sidecar binary to replace the locked one.
 - For `tauri dev`, keep `bundle.externalBin` enabled for packaging but override it out of `TAURI_CONFIG` in debug builds; otherwise `tauri-build` can panic trying to delete a locked sidecar in `src-tauri/target/dev-tauri/debug/`.
 - For `tauri dev`, do not assume refreshing `src-tauri/subgen-sidecar-<target>.exe` is enough; also sync the built sidecar into `src-tauri/target/debug/` and `src-tauri/target/dev-tauri/debug/` so the running dev app does not reuse a stale sidecar.
+- The current Tauri desktop dependency graph resolves to crates that require Rust `1.88.0` (for example `time 0.3.47`), so keep `rust-toolchain.toml` and `src-tauri/Cargo.toml` aligned at `1.88.0` or newer; otherwise older Cargo versions can fail while parsing transitive manifests before the app even builds.
+- In WSL/Linux `tauri dev`, a blank WebKit window with `libEGL` / `MESA` / `ZINK` renderer errors is usually a host rendering issue, not a React crash; set Linux WebKit fallbacks before Tauri startup and keep the workaround scoped to WSL so Windows behavior stays unchanged.
 - If a required runtime dependency is intentionally external, convert raw PATH/startup failures into actionable setup guidance before surfacing them in the UI.
+- When resolving repo-local `services/whisper-server/` assets, accept both `whisper-server` and `whisper-server.exe`; mixed Windows/WSL-style search roots can surface the non-native suffix even when the documented install is present.
 - If backend language discovery is unavailable at startup, preserve the built-in language selector options and surface the translation setup issue as a non-fatal warning instead of blocking the transcription UI.
 - Keep source transcription languages on the built-in Whisper list even when discovered translation pairs are sparse; only narrow translation targets to the backend-reported coverage.
 - When the UI leaves source language on auto-detect, still send `language=auto` to `whisper-server`; omitting the field lets the bundled server default to English and can mis-transcribe foreign speech.

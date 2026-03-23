@@ -35,7 +35,9 @@ fn configure_tauri_build_for_profile() {
         config_override = serde_json::json!({});
     }
 
-    let root = config_override.as_object_mut().expect("config override should be an object");
+    let root = config_override
+        .as_object_mut()
+        .expect("config override should be an object");
     let bundle = root
         .entry("bundle")
         .or_insert_with(|| serde_json::json!({}));
@@ -66,7 +68,7 @@ fn build_go_sidecar(manifest_dir: &Path, go_sidecar_dir: &Path) {
             .arg(&output_path)
             .arg(".")
             .status()
-            .expect("failed to invoke go build for the sidecar");
+            .unwrap_or_else(|err| panic!("{}", format_go_build_error(&err)));
 
         if !status.success() {
             panic!("go build failed for sidecar at {}", output_path.display());
@@ -119,8 +121,13 @@ fn sync_dev_sidecar_copies(manifest_dir: &Path, source_path: &Path, is_windows: 
             .join("debug")
             .join(sidecar_name),
     ];
-    let source_metadata = fs::metadata(source_path)
-        .unwrap_or_else(|err| panic!("failed to read built sidecar {}: {}", source_path.display(), err));
+    let source_metadata = fs::metadata(source_path).unwrap_or_else(|err| {
+        panic!(
+            "failed to read built sidecar {}: {}",
+            source_path.display(),
+            err
+        )
+    });
     let source_len = source_metadata.len();
     let source_modified = source_metadata.modified().ok();
 
@@ -173,4 +180,12 @@ fn handle_sync_error(source_path: &Path, destination: &Path, err: io::Error) {
         destination.display(),
         err
     );
+}
+
+fn format_go_build_error(err: &io::Error) -> String {
+    if err.kind() == io::ErrorKind::NotFound {
+        return "failed to invoke go build for the sidecar: `go` was not found on PATH. Install Go 1.26.1 or newer and ensure the active shell can run `go version` before starting `tauri dev`.".to_string();
+    }
+
+    format!("failed to invoke go build for the sidecar: {}", err)
 }

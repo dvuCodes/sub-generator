@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -120,22 +119,21 @@ func resolveServiceConfig(roots ...string) ServiceConfig {
 func resolveWhisperAssets(roots []string, modelSize string) (string, string) {
 	searchRoots := normalizeSearchRoots(roots)
 	binaryName := "whisper-server"
-	executableName := binaryName
-	if runtime.GOOS == "windows" {
-		executableName += ".exe"
-	}
 
 	requestedModel := modelFilename(modelSize)
 	defaultModel := modelFilename("base")
 
-	binaryCandidates := make([]string, 0, len(searchRoots)*2)
+	executableNames := whisperExecutableCandidates()
+	binaryCandidates := make([]string, 0, len(searchRoots)*len(executableNames)*2)
 	modelCandidates := make([]string, 0, len(searchRoots)*4)
 
 	for _, root := range searchRoots {
-		binaryCandidates = append(binaryCandidates,
-			filepath.Join(root, "services", "whisper-server", executableName),
-			filepath.Join(root, executableName),
-		)
+		for _, executableName := range executableNames {
+			binaryCandidates = append(binaryCandidates,
+				filepath.Join(root, "services", "whisper-server", executableName),
+				filepath.Join(root, executableName),
+			)
+		}
 		modelCandidates = append(modelCandidates,
 			filepath.Join(root, "services", "whisper-server", "models", requestedModel),
 			filepath.Join(root, "models", requestedModel),
@@ -159,6 +157,16 @@ func resolveWhisperAssets(roots []string, modelSize string) (string, string) {
 	}
 
 	return binaryPath, modelPath
+}
+
+func whisperExecutableCandidates() []string {
+	primary := whisperExecutableName()
+	alternate := "whisper-server"
+	if primary == alternate {
+		alternate = "whisper-server.exe"
+	}
+
+	return []string{primary, alternate}
 }
 
 func modelFilename(modelSize string) string {
