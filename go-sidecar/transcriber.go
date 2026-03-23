@@ -31,9 +31,11 @@ type whisperResponse struct {
 }
 
 type whisperSegment struct {
-	Start float64 `json:"t0"`
-	End   float64 `json:"t1"`
-	Text  string  `json:"text"`
+	StartSeconds      *float64 `json:"start"`
+	EndSeconds        *float64 `json:"end"`
+	StartMilliseconds *float64 `json:"t0"`
+	EndMilliseconds   *float64 `json:"t1"`
+	Text              string   `json:"text"`
 }
 
 func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, beamSize int, vadFilter bool) (*TranscriptionResult, error) {
@@ -72,9 +74,10 @@ func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, beamSize 
 	// Convert to our segment format
 	segments := make([]Segment, len(whisperResp.Segments))
 	for i, seg := range whisperResp.Segments {
+		start, end := seg.subtitleTimes()
 		segments[i] = Segment{
-			Start: seg.Start / 1000.0, // whisper-server returns ms, convert to seconds
-			End:   seg.End / 1000.0,
+			Start: start,
+			End:   end,
 			Text:  seg.Text,
 		}
 	}
@@ -87,6 +90,25 @@ func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, beamSize 
 
 func (t *Transcriber) IsHealthy() bool {
 	return isServiceHealthy(t.baseURL + "/health")
+}
+
+func (s whisperSegment) subtitleTimes() (float64, float64) {
+	if s.StartSeconds != nil || s.EndSeconds != nil {
+		return derefFloat64(s.StartSeconds), derefFloat64(s.EndSeconds)
+	}
+
+	if s.StartMilliseconds != nil || s.EndMilliseconds != nil {
+		return derefFloat64(s.StartMilliseconds) / 1000.0, derefFloat64(s.EndMilliseconds) / 1000.0
+	}
+
+	return 0, 0
+}
+
+func derefFloat64(value *float64) float64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func newInferenceRequest(
@@ -129,7 +151,7 @@ func newInferenceRequest(
 			closeWithError(fmt.Errorf("failed to copy file: %w", err))
 			return
 		}
-		if err := writer.WriteField("response_format", "json"); err != nil {
+		if err := writer.WriteField("response_format", "verbose_json"); err != nil {
 			closeWithError(fmt.Errorf("failed to write response_format: %w", err))
 			return
 		}

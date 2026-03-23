@@ -41,3 +41,22 @@ func TestValidateTranscriptionResultAllowsTimestampedSegments(t *testing.T) {
 		t.Fatalf("validateTranscriptionResult() error = %v, want nil", err)
 	}
 }
+
+func TestValidateTranscriptionResultRejectsInvalidSegmentTimings(t *testing.T) {
+	err := validateTranscriptionResult(&TranscriptionResult{
+		Text: "hello world",
+		Segments: []Segment{
+			{Start: 1, End: 1, Text: "hello"},
+		},
+	})
+	if err == nil {
+		t.Fatal("validateTranscriptionResult() error = nil, want invalid timing guidance")
+	}
+
+	message := strings.ToLower(err.Error())
+	for _, fragment := range []string{"timing", "segment"} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("validateTranscriptionResult() error = %q missing %q", err.Error(), fragment)
+		}
+	}
+}
