@@ -6,6 +6,9 @@ import { OutputResult } from "./components/OutputResult";
 import { ProcessingView } from "./components/ProcessingView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { VideoDropzone } from "./components/VideoDropzone";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { useSidecar } from "./hooks/useSidecar";
 import { buildLanguageOptions } from "./lib/languageOptions";
 import {
@@ -20,6 +23,9 @@ import type {
   OutputFormat,
   SidecarResponse,
 } from "./lib/types";
+import { cn } from "@/lib/utils";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { SubtitleIcon, SparklesIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 
 type AppState = "idle" | "processing" | "complete" | "error";
 
@@ -218,36 +224,57 @@ function App() {
       "LibreTranslate will start automatically when translation is needed.";
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="border-b border-gray-800 px-6 py-4">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">SubGen</h1>
-            <p className="text-xs text-gray-500">
-              Local Video Subtitle Generator
-            </p>
-            <p className="mt-1 text-xs text-gray-600">
-              Whisper: {systemInfo?.whisperServer ? "ready" : "idle"} |
-              Translation: {systemInfo?.libretranslate ? "ready" : "idle"} |
-              GPU: {systemInfo?.gpu || "unknown"}
-            </p>
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      {/* Header */}
+      <header className="border-b border-border px-6 py-3">
+        <div className="mx-auto flex max-w-2xl items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex size-8 items-center justify-center bg-primary">
+              <HugeiconsIcon icon={SubtitleIcon} className="size-4 text-primary-foreground" strokeWidth={2} />
+            </div>
+            <div>
+              <h1 className="text-sm font-medium tracking-wide">SUBGEN</h1>
+              <p className="text-[10px] text-muted-foreground">
+                {systemInfo?.gpu && systemInfo.gpu !== "unknown"
+                  ? systemInfo.gpu
+                  : "Local subtitle generator"}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            {systemInfo && (
+              <div className="hidden sm:flex items-center gap-1.5 mr-2">
+                <Badge variant={systemInfo.whisperServer ? "default" : "outline"} className="text-[10px]">
+                  Whisper
+                </Badge>
+                <Badge variant={systemInfo.libretranslate ? "default" : "outline"} className="text-[10px]">
+                  Translate
+                </Badge>
+              </div>
+            )}
             <div
-              className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : connecting ? "animate-pulse bg-yellow-500" : "bg-red-500"}`}
+              className={cn(
+                "size-2",
+                connected
+                  ? "bg-chart-1"
+                  : connecting
+                    ? "animate-pulse bg-chart-4"
+                    : "bg-destructive"
+              )}
             />
-            <span className="text-xs text-gray-500">
+            <span className="text-[10px] text-muted-foreground">
               {connected
-                ? "Connected"
+                ? "Ready"
                 : connecting
-                  ? "Connecting..."
-                  : "Disconnected"}
+                  ? "Connecting"
+                  : "Offline"}
             </span>
           </div>
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+      {/* Main */}
+      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-6 space-y-5">
         {appState === "complete" && completion ? (
           <OutputResult
             outputPath={completion.outputPath}
@@ -262,6 +289,8 @@ function App() {
               onFileSelect={setVideoPath}
               disabled={isProcessing}
             />
+
+            <Separator />
 
             <LanguageSelector
               sourceLang={sourceLang}
@@ -295,46 +324,47 @@ function App() {
             />
 
             {isProcessing && (
-              <ProcessingView
-                stage={processing.stage}
-                percent={processing.percent}
-                message={processing.message}
-                onStop={handleStopProcessing}
-                stopDisabled={isStopping}
-                stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
-              />
+              <>
+                <Separator />
+                <ProcessingView
+                  stage={processing.stage}
+                  percent={processing.percent}
+                  message={processing.message}
+                  onStop={handleStopProcessing}
+                  stopDisabled={isStopping}
+                  stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
+                />
+              </>
             )}
 
             {appState === "error" && errorMsg && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
-                <p className="text-sm text-red-400">{errorMsg}</p>
-                <button
-                  onClick={() => setAppState("idle")}
-                  className="mt-2 text-xs text-red-400 underline hover:text-red-300"
-                >
-                  Dismiss
-                </button>
+              <div className="flex items-start gap-3 border border-destructive/30 bg-destructive/5 p-4">
+                <HugeiconsIcon icon={Cancel01Icon} className="mt-0.5 size-4 shrink-0 text-destructive" strokeWidth={2} />
+                <div className="flex-1">
+                  <p className="text-xs text-destructive">{errorMsg}</p>
+                  <button
+                    onClick={() => setAppState("idle")}
+                    className="mt-2 text-[10px] text-destructive/70 underline underline-offset-2 hover:text-destructive"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             )}
 
-            <button
-              onClick={handleGenerate}
-              disabled={!videoPath || !connected || isProcessing}
-              className={`
-                w-full rounded-lg py-3 text-lg font-medium transition-all
-                ${
-                  !videoPath || !connected || isProcessing
-                    ? "cursor-not-allowed bg-gray-700 text-gray-400"
-                    : "bg-blue-600 text-white hover:bg-blue-500"
-                }
-              `}
-            >
-              {isProcessing
-                ? "Processing..."
-                : !connected
+            {!isProcessing && (
+              <Button
+                size="lg"
+                className="w-full py-6 text-xs font-medium uppercase tracking-widest"
+                onClick={handleGenerate}
+                disabled={!videoPath || !connected || isProcessing}
+              >
+                <HugeiconsIcon icon={SparklesIcon} className="size-4" strokeWidth={1.5} />
+                {!connected
                   ? "Waiting for backend..."
                   : "Generate Subtitles"}
-            </button>
+              </Button>
+            )}
           </>
         )}
       </main>

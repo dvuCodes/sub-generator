@@ -1,4 +1,10 @@
 import { useState } from "react";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Settings01Icon } from "@hugeicons/core-free-icons";
+import { cn } from "@/lib/utils";
 
 interface SettingsPanelProps {
   beamSize: number;
@@ -18,63 +24,58 @@ export function SettingsPanel({
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="border border-gray-700 rounded-lg">
+    <div className="border border-border">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 flex items-center justify-between text-gray-300 hover:text-gray-100 transition-colors"
+        className="flex w-full items-center justify-between px-4 py-3 text-xs text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span className="text-sm font-medium">Advanced Settings</span>
+        <span className="flex items-center gap-2 font-medium uppercase tracking-wider">
+          <HugeiconsIcon icon={Settings01Icon} className="size-3.5" strokeWidth={1.5} />
+          Advanced
+        </span>
         <span
-          className={`transform transition-transform ${isOpen ? "rotate-180" : ""}`}
+          className={cn(
+            "text-[10px] transition-transform duration-200",
+            isOpen && "rotate-180"
+          )}
         >
           &#9660;
         </span>
       </button>
 
       {isOpen && (
-        <div className="px-4 pb-4 space-y-4 border-t border-gray-700 pt-4">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">
-              Beam Size ({beamSize})
-            </label>
-            <input
-              type="range"
+        <div className="space-y-5 border-t border-border px-4 pb-4 pt-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">Beam Size</Label>
+              <span className="font-mono text-xs text-foreground">{beamSize}</span>
+            </div>
+            <Slider
               min={1}
               max={10}
-              value={beamSize}
-              onChange={(e) => onBeamSizeChange(parseInt(e.target.value))}
+              step={1}
+              value={[beamSize]}
+              onValueChange={([val]) => onBeamSizeChange(val)}
               disabled={disabled}
-              className="w-full accent-blue-500"
             />
-            <div className="flex justify-between text-xs text-gray-500">
+            <div className="flex justify-between text-[10px] text-muted-foreground">
               <span>Faster</span>
               <span>More accurate</span>
             </div>
           </div>
 
           <div className="flex items-center justify-between">
-            <div>
-              <label className="block text-sm text-gray-300">VAD Filter</label>
-              <p className="text-xs text-gray-500">
+            <div className="space-y-0.5">
+              <Label className="text-xs">VAD Filter</Label>
+              <p className="text-[10px] text-muted-foreground">
                 Voice Activity Detection for cleaner segments
               </p>
             </div>
-            <button
-              onClick={() => onVadFilterChange(!vadFilter)}
+            <Switch
+              checked={vadFilter}
+              onCheckedChange={onVadFilterChange}
               disabled={disabled}
-              className={`
-                w-12 h-6 rounded-full transition-colors relative
-                ${vadFilter ? "bg-blue-500" : "bg-gray-600"}
-                ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-              `}
-            >
-              <span
-                className={`
-                  absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform
-                  ${vadFilter ? "translate-x-6" : "translate-x-0.5"}
-                `}
-              />
-            </button>
+            />
           </div>
         </div>
       )}
