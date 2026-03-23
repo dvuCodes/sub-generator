@@ -7,6 +7,7 @@ import { ProcessingView } from "./components/ProcessingView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { VideoDropzone } from "./components/VideoDropzone";
 import { useSidecar } from "./hooks/useSidecar";
+import { formatRuntimeError } from "./lib/runtimeError";
 import type {
   GenerateCommand,
   LanguagePair,
@@ -178,11 +179,7 @@ function App() {
           });
           break;
         case "error":
-          setErrorMsg(
-            response.details
-              ? `${response.message}: ${response.details}`
-              : response.message
-          );
+          setErrorMsg(formatRuntimeError(response.message, response.details));
           setAppState("error");
           break;
       }
