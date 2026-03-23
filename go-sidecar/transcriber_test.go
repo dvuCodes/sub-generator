@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"reflect"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTranscribeForwardsConfiguredInferenceOptions(t *testing.T) {
@@ -190,7 +191,7 @@ func TestTranscribeFallsBackToLegacyMillisecondSegments(t *testing.T) {
 	}
 }
 
-func TestNewInferenceRequestStreamsMultipartBody(t *testing.T) {
+func TestNewInferenceRequestStagesMultipartBodyOnDisk(t *testing.T) {
 	videoPath := writeTempVideoFile(t)
 	sourceLang := "ja"
 
@@ -204,11 +205,15 @@ func TestNewInferenceRequestStreamsMultipartBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newInferenceRequest() error = %v", err)
 	}
+
+	bodyFile, ok := req.Body.(*os.File)
+	if !ok {
+		cleanup()
+		t.Fatalf("request body type = %T, want *os.File for a staged multipart body", req.Body)
+	}
+	tempBodyPath := bodyFile.Name()
 	defer cleanup()
 
-	if got := reflect.TypeOf(req.Body).String(); got != "*io.PipeReader" {
-		t.Fatalf("request body type = %s, want *io.PipeReader for a streaming body", got)
-	}
 	if contentType == "" {
 		t.Fatal("contentType should not be empty")
 	}
@@ -233,12 +238,59 @@ func TestNewInferenceRequestStreamsMultipartBody(t *testing.T) {
 			t.Fatalf("multipart body missing %q in %q", fragment, body)
 		}
 	}
+
+	if _, err := os.Stat(tempBodyPath); err != nil {
+		t.Fatalf("temp multipart body missing before cleanup: %v", err)
+	}
+}
+
+func TestNewInferenceRequestCleanupRemovesMultipartTempFile(t *testing.T) {
+	req, _, cleanup, err := newInferenceRequest(
+		"http://localhost:8080/inference",
+		writeTempVideoFile(t),
+		nil,
+		5,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("newInferenceRequest() error = %v", err)
+	}
+
+	bodyFile, ok := req.Body.(*os.File)
+	if !ok {
+		cleanup()
+		t.Fatalf("request body type = %T, want *os.File", req.Body)
+	}
+	tempBodyPath := bodyFile.Name()
+
+	cleanup()
+
+	if _, err := os.Stat(tempBodyPath); !os.IsNotExist(err) {
+		t.Fatalf("cleanup should remove %q, stat err = %v", tempBodyPath, err)
+	}
+}
+
+func TestNewTranscriberUsesDedicatedTransportWithoutKeepAlives(t *testing.T) {
+	transcriber := NewTranscriber(8080)
+
+	if transcriber.client.Timeout != 30*time.Minute {
+		t.Fatalf("client timeout = %s, want %s", transcriber.client.Timeout, 30*time.Minute)
+	}
+
+	transport, ok := transcriber.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("client transport type = %T, want *http.Transport", transcriber.client.Transport)
+	}
+
+	if !transport.DisableKeepAlives {
+		t.Fatal("client transport should disable keep-alives for the local whisper-server")
+	}
 }
 
 func writeTempVideoFile(t *testing.T) string {
 	t.Helper()
 
-	path := t.TempDir() + "/sample.mp4"
+	path := filepath.Join(t.TempDir(), "sample.mp4")
 	if err := os.WriteFile(path, []byte("video"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error: %v", err)
 	}
