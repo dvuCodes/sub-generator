@@ -253,7 +253,7 @@ func validateWhisperRuntimeDependencies(searchRoots []string, binaryPath, modelP
 
 func missingWhisperSetupError(searchRoots []string, binaryPath, modelPath string, missingBinary, missingModel bool) error {
 	installDir := preferredWhisperInstallDir(searchRoots)
-	expectedBinary := filepath.Join(installDir, whisperExecutableName())
+	expectedBinary := preferredWhisperBinaryPath(installDir)
 	expectedModel := filepath.Join(installDir, "models", filepath.Base(modelPath))
 	binaryLocation := expectedBinary
 	modelLocation := expectedModel
@@ -285,6 +285,17 @@ func missingWhisperSetupError(searchRoots []string, binaryPath, modelPath string
 	}
 
 	return fmt.Errorf("%s.", message)
+}
+
+func preferredWhisperBinaryPath(installDir string) string {
+	for _, executableName := range whisperExecutableCandidates() {
+		candidate := filepath.Join(installDir, executableName)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+
+	return filepath.Join(installDir, whisperExecutableName())
 }
 
 func normalizeWhisperStartupError(searchRoots []string, binaryPath, modelPath string, err error) error {

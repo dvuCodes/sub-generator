@@ -24,8 +24,8 @@ public/             Static frontend assets
 ## Prerequisites
 
 - Bun 1.3+
-- Rust + Cargo
-- Go 1.26.1
+- Rust + Cargo (`rustup` will pick the pinned `1.88.0` toolchain from `rust-toolchain.toml`)
+- Go 1.26.1 on `PATH` in the active shell that runs `bunx tauri dev`
 - `whisper-server` available either:
   - on `PATH`, or
   - under `services/whisper-server/`

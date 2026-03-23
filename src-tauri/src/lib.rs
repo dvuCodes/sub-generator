@@ -106,8 +106,45 @@ fn clear_child_state<T>(child: &Arc<Mutex<Option<T>>>) {
     }
 }
 
+fn linux_webview_env_overrides(
+    is_linux: bool,
+    is_wsl: bool,
+    has_compositing_override: bool,
+    has_dmabuf_override: bool,
+) -> Vec<(&'static str, &'static str)> {
+    if !is_linux || !is_wsl {
+        return Vec::new();
+    }
+
+    let mut overrides = Vec::with_capacity(2);
+    if !has_compositing_override {
+        overrides.push(("WEBKIT_DISABLE_COMPOSITING_MODE", "1"));
+    }
+    if !has_dmabuf_override {
+        overrides.push(("WEBKIT_DISABLE_DMABUF_RENDERER", "1"));
+    }
+
+    overrides
+}
+
+fn configure_runtime_workarounds() {
+    let overrides = linux_webview_env_overrides(
+        cfg!(target_os = "linux"),
+        std::env::var_os("WSL_DISTRO_NAME").is_some(),
+        std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_some(),
+        std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some(),
+    );
+
+    for (key, value) in overrides {
+        // Set the WebKitGTK rendering fallbacks before Tauri initializes the Linux webview.
+        unsafe { std::env::set_var(key, value) };
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    configure_runtime_workarounds();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -135,7 +172,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::clear_child_state;
+    use super::{clear_child_state, linux_webview_env_overrides};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -145,5 +182,34 @@ mod tests {
         clear_child_state(&child);
 
         assert!(child.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn linux_webview_env_overrides_only_applies_in_wsl_linux() {
+        let overrides = linux_webview_env_overrides(false, true, false, false);
+        assert!(overrides.is_empty());
+
+        let overrides = linux_webview_env_overrides(true, false, false, false);
+        assert!(overrides.is_empty());
+    }
+
+    #[test]
+    fn linux_webview_env_overrides_sets_missing_webkit_flags() {
+        let overrides = linux_webview_env_overrides(true, true, false, false);
+
+        assert_eq!(
+            overrides,
+            vec![
+                ("WEBKIT_DISABLE_COMPOSITING_MODE", "1"),
+                ("WEBKIT_DISABLE_DMABUF_RENDERER", "1"),
+            ]
+        );
+    }
+
+    #[test]
+    fn linux_webview_env_overrides_preserves_existing_user_overrides() {
+        let overrides = linux_webview_env_overrides(true, true, true, false);
+
+        assert_eq!(overrides, vec![("WEBKIT_DISABLE_DMABUF_RENDERER", "1")]);
     }
 }
