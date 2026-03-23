@@ -186,17 +186,32 @@ func validateTranscriptionResult(result *TranscriptionResult) error {
 	}
 
 	if len(result.Segments) > 0 {
+		usable := result.Segments[:0]
+		firstInvalidIndex := -1
+		var firstInvalid Segment
+
 		for i, segment := range result.Segments {
-			if segment.Start < 0 || segment.End <= segment.Start {
-				return fmt.Errorf(
-					"whisper-server returned unusable segment timing data for segment %d (start=%.3f end=%.3f), so subtitle timing could not be generated",
-					i+1,
-					segment.Start,
-					segment.End,
-				)
+			if segment.Start >= 0 && segment.End > segment.Start {
+				usable = append(usable, segment)
+				continue
+			}
+			if firstInvalidIndex == -1 {
+				firstInvalidIndex = i
+				firstInvalid = segment
 			}
 		}
-		return nil
+
+		if len(usable) > 0 {
+			result.Segments = usable
+			return nil
+		}
+
+		return fmt.Errorf(
+			"whisper-server returned unusable segment timing data for every segment (first invalid segment %d start=%.3f end=%.3f), so subtitle timing could not be generated",
+			firstInvalidIndex+1,
+			firstInvalid.Start,
+			firstInvalid.End,
+		)
 	}
 
 	if strings.TrimSpace(result.Text) != "" {
