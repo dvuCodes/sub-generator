@@ -96,6 +96,69 @@ func TestTranscribeParsesVerboseJSONSegmentTimestamps(t *testing.T) {
 	}
 }
 
+func TestTranscribeRequestsAutoDetectWhenSourceLanguageIsUnset(t *testing.T) {
+	t.Helper()
+
+	var gotLanguage string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm error: %v", err)
+		}
+
+		gotLanguage = r.FormValue("language")
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"text": "hola",
+			"segments": []map[string]any{
+				{"start": 0.0, "end": 1.0, "text": "hola"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	transcriber := &Transcriber{
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	_, err := transcriber.Transcribe(writeTempVideoFile(t), nil, 5, true)
+	if err != nil {
+		t.Fatalf("Transcribe() error: %v", err)
+	}
+
+	if gotLanguage != "auto" {
+		t.Fatalf("language = %q, want %q for auto-detect", gotLanguage, "auto")
+	}
+}
+
+func TestTranscribeCapturesDetectedLanguageFromVerboseJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"text":     "hola",
+			"language": "es",
+			"segments": []map[string]any{
+				{"start": 0.0, "end": 1.0, "text": "hola"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	transcriber := &Transcriber{
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	result, err := transcriber.Transcribe(writeTempVideoFile(t), nil, 5, true)
+	if err != nil {
+		t.Fatalf("Transcribe() error: %v", err)
+	}
+
+	if result.Language != "es" {
+		t.Fatalf("language = %q, want %q", result.Language, "es")
+	}
+}
+
 func TestTranscribeFallsBackToLegacyMillisecondSegments(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
