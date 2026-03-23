@@ -17,7 +17,7 @@ func TestTranscribeForwardsConfiguredInferenceOptions(t *testing.T) {
 
 	var gotLanguage string
 	var gotBeamSize string
-	var gotVADFilter string
+	var gotVAD string
 	var gotResponseFormat string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +27,7 @@ func TestTranscribeForwardsConfiguredInferenceOptions(t *testing.T) {
 
 		gotLanguage = r.FormValue("language")
 		gotBeamSize = r.FormValue("beam_size")
-		gotVADFilter = r.FormValue("vad_filter")
+		gotVAD = r.FormValue("vad")
 		gotResponseFormat = r.FormValue("response_format")
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -58,8 +58,8 @@ func TestTranscribeForwardsConfiguredInferenceOptions(t *testing.T) {
 	if gotBeamSize != "7" {
 		t.Fatalf("beam_size = %q, want %q", gotBeamSize, "7")
 	}
-	if gotVADFilter != "false" {
-		t.Fatalf("vad_filter = %q, want %q", gotVADFilter, "false")
+	if gotVAD != "false" {
+		t.Fatalf("vad = %q, want %q", gotVAD, "false")
 	}
 	if gotResponseFormat != "verbose_json" {
 		t.Fatalf("response_format = %q, want %q", gotResponseFormat, "verbose_json")
@@ -101,6 +101,7 @@ func TestTranscribeRequestsAutoDetectWhenSourceLanguageIsUnset(t *testing.T) {
 	t.Helper()
 
 	var gotLanguage string
+	var gotDetectLanguage string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
@@ -108,6 +109,7 @@ func TestTranscribeRequestsAutoDetectWhenSourceLanguageIsUnset(t *testing.T) {
 		}
 
 		gotLanguage = r.FormValue("language")
+		gotDetectLanguage = r.FormValue("detect_language")
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"text": "hola",
@@ -130,6 +132,9 @@ func TestTranscribeRequestsAutoDetectWhenSourceLanguageIsUnset(t *testing.T) {
 
 	if gotLanguage != "auto" {
 		t.Fatalf("language = %q, want %q for auto-detect", gotLanguage, "auto")
+	}
+	if gotDetectLanguage != "true" {
+		t.Fatalf("detect_language = %q, want %q for auto-detect", gotDetectLanguage, "true")
 	}
 }
 
@@ -230,7 +235,7 @@ func TestNewInferenceRequestStagesMultipartBodyOnDisk(t *testing.T) {
 		"\r\nverbose_json\r\n",
 		`name="beam_size"`,
 		"\r\n7\r\n",
-		`name="vad_filter"`,
+		`name="vad"`,
 		"\r\nfalse\r\n",
 		`filename="sample.mp4"`,
 	} {

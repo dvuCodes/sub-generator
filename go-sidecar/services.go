@@ -215,6 +215,7 @@ func buildWhisperCommand(binaryPath, modelPath string, port int) *exec.Cmd {
 		"-m", modelPath,
 		"--port", fmt.Sprintf("%d", port),
 		"--convert",
+		"--no-flash-attn",
 	)
 }
 

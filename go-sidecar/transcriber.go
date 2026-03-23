@@ -166,9 +166,9 @@ func newInferenceRequest(
 		cleanup()
 		return nil, "", nil, fmt.Errorf("failed to write beam_size: %w", err)
 	}
-	if err := writer.WriteField("vad_filter", strconv.FormatBool(vadFilter)); err != nil {
+	if err := writer.WriteField("vad", strconv.FormatBool(vadFilter)); err != nil {
 		cleanup()
-		return nil, "", nil, fmt.Errorf("failed to write vad_filter: %w", err)
+		return nil, "", nil, fmt.Errorf("failed to write vad: %w", err)
 	}
 	language := "auto"
 	if sourceLang != nil && *sourceLang != "" {
@@ -177,6 +177,12 @@ func newInferenceRequest(
 	if err := writer.WriteField("language", language); err != nil {
 		cleanup()
 		return nil, "", nil, fmt.Errorf("failed to write language: %w", err)
+	}
+	if language == "auto" {
+		if err := writer.WriteField("detect_language", "true"); err != nil {
+			cleanup()
+			return nil, "", nil, fmt.Errorf("failed to write detect_language: %w", err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		cleanup()
