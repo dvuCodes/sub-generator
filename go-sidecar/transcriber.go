@@ -27,6 +27,7 @@ func NewTranscriber(port int) *Transcriber {
 // whisper-server /inference response format
 type whisperResponse struct {
 	Text     string           `json:"text"`
+	Language string           `json:"language"`
 	Segments []whisperSegment `json:"segments"`
 }
 
@@ -85,6 +86,7 @@ func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, beamSize 
 	return &TranscriptionResult{
 		Text:     whisperResp.Text,
 		Segments: segments,
+		Language: whisperResp.Language,
 	}, nil
 }
 
@@ -167,11 +169,13 @@ func newInferenceRequest(
 			closeWithError(fmt.Errorf("failed to write vad_filter: %w", err))
 			return
 		}
+		language := "auto"
 		if sourceLang != nil && *sourceLang != "" {
-			if err := writer.WriteField("language", *sourceLang); err != nil {
-				closeWithError(fmt.Errorf("failed to write language: %w", err))
-				return
-			}
+			language = *sourceLang
+		}
+		if err := writer.WriteField("language", language); err != nil {
+			closeWithError(fmt.Errorf("failed to write language: %w", err))
+			return
 		}
 		if err := writer.Close(); err != nil {
 			closeWithError(fmt.Errorf("failed to close multipart writer: %w", err))
