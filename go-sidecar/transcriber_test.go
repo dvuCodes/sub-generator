@@ -17,6 +17,7 @@ func TestTranscribeForwardsConfiguredInferenceOptions(t *testing.T) {
 	var gotLanguage string
 	var gotBeamSize string
 	var gotVADFilter string
+	var gotResponseFormat string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
@@ -26,11 +27,12 @@ func TestTranscribeForwardsConfiguredInferenceOptions(t *testing.T) {
 		gotLanguage = r.FormValue("language")
 		gotBeamSize = r.FormValue("beam_size")
 		gotVADFilter = r.FormValue("vad_filter")
+		gotResponseFormat = r.FormValue("response_format")
 
-		_ = json.NewEncoder(w).Encode(whisperResponse{
-			Text: "hello",
-			Segments: []whisperSegment{
-				{Start: 0, End: 1000, Text: "hello"},
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"text": "hello",
+			"segments": []map[string]any{
+				{"start": 0.0, "end": 1.0, "text": "hello"},
 			},
 		})
 	}))
@@ -57,6 +59,71 @@ func TestTranscribeForwardsConfiguredInferenceOptions(t *testing.T) {
 	}
 	if gotVADFilter != "false" {
 		t.Fatalf("vad_filter = %q, want %q", gotVADFilter, "false")
+	}
+	if gotResponseFormat != "verbose_json" {
+		t.Fatalf("response_format = %q, want %q", gotResponseFormat, "verbose_json")
+	}
+}
+
+func TestTranscribeParsesVerboseJSONSegmentTimestamps(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"text": "hello world",
+			"segments": []map[string]any{
+				{"start": 0.15, "end": 3.52, "text": "hello world"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	transcriber := &Transcriber{
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	result, err := transcriber.Transcribe(writeTempVideoFile(t), nil, 5, true)
+	if err != nil {
+		t.Fatalf("Transcribe() error: %v", err)
+	}
+
+	if len(result.Segments) != 1 {
+		t.Fatalf("segments = %d, want 1", len(result.Segments))
+	}
+
+	segment := result.Segments[0]
+	if segment.Start != 0.15 || segment.End != 3.52 {
+		t.Fatalf("segment timings = %#v, want start=0.15 end=3.52", segment)
+	}
+}
+
+func TestTranscribeFallsBackToLegacyMillisecondSegments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"text": "legacy",
+			"segments": []map[string]any{
+				{"t0": 250.0, "t1": 1750.0, "text": "legacy"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	transcriber := &Transcriber{
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	result, err := transcriber.Transcribe(writeTempVideoFile(t), nil, 5, true)
+	if err != nil {
+		t.Fatalf("Transcribe() error: %v", err)
+	}
+
+	if len(result.Segments) != 1 {
+		t.Fatalf("segments = %d, want 1", len(result.Segments))
+	}
+
+	segment := result.Segments[0]
+	if segment.Start != 0.25 || segment.End != 1.75 {
+		t.Fatalf("legacy segment timings = %#v, want start=0.25 end=1.75", segment)
 	}
 }
 
@@ -91,6 +158,8 @@ func TestNewInferenceRequestStreamsMultipartBody(t *testing.T) {
 	for _, fragment := range []string{
 		`name="language"`,
 		"\r\nja\r\n",
+		`name="response_format"`,
+		"\r\nverbose_json\r\n",
 		`name="beam_size"`,
 		"\r\n7\r\n",
 		`name="vad_filter"`,
