@@ -40,6 +40,29 @@ type libreTranslateLanguage struct {
 	Targets []string `json:"targets"`
 }
 
+func supportsTranslationPair(pairs []LanguagePair, sourceLang, targetLang string) bool {
+	if targetLang == "" {
+		return true
+	}
+
+	if sourceLang == "" || sourceLang == "auto" {
+		for _, pair := range pairs {
+			if pair.Target == targetLang {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, pair := range pairs {
+		if pair.Source == sourceLang && pair.Target == targetLang {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (t *Translator) Translate(text, sourceLang, targetLang string) (string, error) {
 	reqBody := translateRequest{
 		Q:      text,

@@ -43,3 +43,19 @@ func TestListLanguagesUsesDeclaredTargets(t *testing.T) {
 		t.Fatalf("ListLanguages() missed pairs: %#v", want)
 	}
 }
+
+func TestSupportsTranslationPairRequiresSourceSpecificTarget(t *testing.T) {
+	pairs := []LanguagePair{
+		{Source: "en", Target: "ja"},
+		{Source: "en", Target: "fr"},
+		{Source: "ja", Target: "ko"},
+	}
+
+	if !supportsTranslationPair(pairs, "ja", "ko") {
+		t.Fatal("supportsTranslationPair() = false, want true for a declared pair")
+	}
+
+	if supportsTranslationPair(pairs, "ja", "en") {
+		t.Fatal("supportsTranslationPair() = true, want false when the target only exists for a different source")
+	}
+}

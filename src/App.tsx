@@ -16,7 +16,6 @@ import {
 import { formatRuntimeError } from "./lib/runtimeError";
 import type {
   GenerateCommand,
-  LanguagePair,
   ModelSize,
   OutputFormat,
   SidecarResponse,
@@ -54,7 +53,6 @@ function App() {
   );
   const [completion, setCompletion] = useState<CompletionState | null>(null);
   const [systemInfo, setSystemInfo] = useState<SystemInfoState | null>(null);
-  const [availablePairs, setAvailablePairs] = useState<LanguagePair[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [translationWarning, setTranslationWarning] = useState("");
   const [isStopping, setIsStopping] = useState(false);
@@ -84,7 +82,6 @@ function App() {
           setAppState("complete");
           break;
         case "languages":
-          setAvailablePairs(response.installed);
           setTranslationWarning("");
           setSystemInfo((prev) =>
             prev
@@ -137,6 +134,8 @@ function App() {
       console.error("Failed to request language list:", err);
     });
   }, [connected, sendCommand]);
+
+  const languageOptions = buildLanguageOptions();
 
   const handleGenerate = useCallback(async () => {
     if (!videoPath || !connected) return;
@@ -213,7 +212,6 @@ function App() {
   }, [appState, connect, disconnect, isStopping]);
 
   const isProcessing = appState === "processing";
-  const languageOptions = buildLanguageOptions(availablePairs);
   const translationStatus = systemInfo?.libretranslate
     ? `LibreTranslate ready. ${languageOptions.target.length} translation targets available.`
     : translationWarning ||
