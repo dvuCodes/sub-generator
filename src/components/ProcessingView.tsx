@@ -1,3 +1,9 @@
+import { cn } from "@/lib/utils";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { StopCircleIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+
 interface ProcessingViewProps {
   stage: string;
   percent: number | null;
@@ -16,11 +22,11 @@ const STAGE_ORDER = [
 ];
 
 const STAGE_LABELS: Record<string, string> = {
-  validating: "Validating",
-  starting_services: "Starting Services",
-  transcribing: "Transcribing",
-  translating: "Translating",
-  writing: "Writing File",
+  validating: "Validate",
+  starting_services: "Services",
+  transcribing: "Transcribe",
+  translating: "Translate",
+  writing: "Write",
 };
 
 export function ProcessingView({
@@ -36,33 +42,45 @@ export function ProcessingView({
   const displayPercent = isDeterminate ? Math.round(percent) : null;
 
   return (
-    <div className="space-y-6">
-      {/* Stage indicators */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+      {/* Stage pipeline */}
+      <div className="flex items-center gap-1">
         {STAGE_ORDER.map((s, i) => {
           const isActive = i === currentIndex;
           const isComplete = i < currentIndex;
 
           return (
-            <div key={s} className="flex items-center gap-2">
-              <div
-                className={`
-                  w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition-all
-                  ${isComplete ? "bg-green-500 text-white" : ""}
-                  ${isActive ? "bg-blue-500 text-white animate-pulse" : ""}
-                  ${!isActive && !isComplete ? "bg-gray-700 text-gray-400" : ""}
-                `}
-              >
-                {isComplete ? "✓" : i + 1}
+            <div key={s} className="flex flex-1 items-center gap-1">
+              <div className="flex flex-1 flex-col items-center gap-1.5">
+                <div
+                  className={cn(
+                    "flex size-7 items-center justify-center text-[10px] font-medium transition-all",
+                    isComplete && "bg-chart-1 text-background",
+                    isActive && "bg-primary text-primary-foreground animate-pulse",
+                    !isActive && !isComplete && "bg-muted text-muted-foreground"
+                  )}
+                >
+                  {isComplete ? (
+                    <HugeiconsIcon icon={Tick02Icon} className="size-3.5" strokeWidth={2.5} />
+                  ) : (
+                    i + 1
+                  )}
+                </div>
+                <span
+                  className={cn(
+                    "text-[10px] font-medium uppercase tracking-wider",
+                    isActive ? "text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  {STAGE_LABELS[s] ?? s}
+                </span>
               </div>
-              <span
-                className={`text-xs hidden sm:inline ${isActive ? "text-blue-400" : "text-gray-500"}`}
-              >
-                {STAGE_LABELS[s] ?? s}
-              </span>
               {i < STAGE_ORDER.length - 1 && (
                 <div
-                  className={`w-8 h-0.5 ${isComplete ? "bg-green-500" : "bg-gray-700"}`}
+                  className={cn(
+                    "mb-5 h-px flex-1 transition-colors",
+                    isComplete ? "bg-chart-1" : "bg-border"
+                  )}
                 />
               )}
             </div>
@@ -70,42 +88,34 @@ export function ProcessingView({
         })}
       </div>
 
-      {/* Progress bar */}
-      <div>
-        <div className="flex justify-between text-sm mb-1">
-          <span className="text-gray-300">{message}</span>
-          <span className="text-gray-400">
-            {isDeterminate ? `${displayPercent}%` : "Working..."}
+      {/* Progress */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">{message}</span>
+          <span className="font-mono text-foreground">
+            {isDeterminate ? `${displayPercent}%` : "---"}
           </span>
         </div>
-        <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
-          {isDeterminate ? (
-            <div
-              className="bg-blue-500 h-full rounded-full transition-all duration-300"
-              style={{ width: `${displayPercent}%` }}
-            />
-          ) : (
-            <div className="processing-indeterminate h-full w-2/5 rounded-full bg-blue-500" />
-          )}
-        </div>
+        {isDeterminate ? (
+          <Progress value={displayPercent ?? 0} />
+        ) : (
+          <div className="relative h-1 w-full overflow-hidden bg-muted">
+            <div className="processing-indeterminate h-full w-2/5 bg-primary" />
+          </div>
+        )}
       </div>
 
       {onStop && (
-        <button
-          type="button"
+        <Button
+          variant="destructive"
+          size="lg"
+          className="w-full"
           onClick={onStop}
           disabled={stopDisabled}
-          className={`
-            w-full rounded-lg border px-4 py-3 text-sm font-medium transition-colors
-            ${
-              stopDisabled
-                ? "cursor-not-allowed border-gray-700 bg-gray-800 text-gray-500"
-                : "border-red-500/40 bg-red-500/10 text-red-300 hover:border-red-400 hover:bg-red-500/20"
-            }
-          `}
         >
+          <HugeiconsIcon icon={StopCircleIcon} className="size-4" strokeWidth={1.5} />
           {stopLabel}
-        </button>
+        </Button>
       )}
     </div>
   );
