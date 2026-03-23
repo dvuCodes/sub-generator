@@ -18,6 +18,7 @@ export function useSidecar() {
   );
   const listenersRef = useRef<UnlistenFn[]>([]);
   const responseHandlerRef = useRef<((response: SidecarResponse) => void) | null>(null);
+  const ignoreNextTerminationRef = useRef(false);
 
   // Set up event listeners for sidecar output
   useEffect(() => {
@@ -41,6 +42,10 @@ export function useSidecar() {
       const unlistenTerminated = await listen<number | null>(
         "sidecar-terminated",
         (event) => {
+          if (ignoreNextTerminationRef.current) {
+            ignoreNextTerminationRef.current = false;
+            return;
+          }
           console.warn("Sidecar terminated with code:", event.payload);
           setState({ connected: false, connecting: false });
         }
@@ -75,9 +80,11 @@ export function useSidecar() {
   }, [state.connected, state.connecting]);
 
   const disconnect = useCallback(async () => {
+    ignoreNextTerminationRef.current = true;
     try {
       await invoke("kill_sidecar");
     } catch (err) {
+      ignoreNextTerminationRef.current = false;
       console.error("Failed to kill sidecar:", err);
     }
     setState({ connected: false, connecting: false });
