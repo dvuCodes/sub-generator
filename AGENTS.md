@@ -12,6 +12,11 @@
 - Run project git commands from `C:\Users\datvu\projects\sub-generator`; do not use the parent `C:\Users\datvu\projects` repo for this project.
 - If `rg.exe` is blocked in PowerShell, use `Select-String` and `Get-ChildItem` as the repository search fallback.
 - If the Tauri app uses `externalBin` sidecars, verify the bundled sidecar executable is rebuilt when `go-sidecar/` changes.
+- If a required runtime dependency is intentionally external, convert raw PATH/startup failures into actionable setup guidance before surfacing them in the UI.
+- For this desktop-only Tauri app, avoid `staticlib` in `src-tauri/Cargo.toml`; it produces a massive `app_lib.lib` on Windows and can fail rebuilds with archive rename access errors.
+- If Windows dev builds lock `subgen.pdb`, disable dev debug info in `src-tauri/Cargo.toml` (`[profile.dev] debug = 0`) rather than fighting repeated PDB replace failures.
+- If `tauri dev` is still blocked by stale Windows debug artifacts, isolate Rust outputs with `src-tauri/.cargo/config.toml` and a dedicated target dir instead of reusing `src-tauri/target/debug`.
+- `tsconfig.app.json` excludes `src/**/*.test.ts` but not `src/**/*.test.tsx`; keep Bun/JSX regression tests on the excluded pattern or update the exclude list before relying on `.test.tsx`.
 - Always mark tasks off when complete.
 - After every correction to assumptions/process, update this `AGENTS.md`.
 - When testing streamed Go HTTP request bodies, do not rely on `ContentLength`; assert the streaming mechanism itself (for example `io.PipeReader`) or read behavior instead.

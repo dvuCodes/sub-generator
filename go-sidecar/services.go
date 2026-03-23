@@ -57,7 +57,7 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 		return nil
 	}
 
-	if err := validateWhisperStartup(whisperBinary, whisperModel); err != nil {
+	if err := validateWhisperStartup(sm.config.SearchRoots, whisperBinary, whisperModel); err != nil {
 		return err
 	}
 
@@ -204,14 +204,80 @@ func runCommand(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func validateWhisperStartup(binaryPath, modelPath string) error {
+func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) error {
+	missingBinary := false
 	if err := validateCommandAvailability(binaryPath, "whisper-server"); err != nil {
-		return err
+		missingBinary = true
 	}
+
+	missingModel := false
 	if info, err := os.Stat(modelPath); err != nil || info.IsDir() {
-		return fmt.Errorf("whisper model not found at %q", modelPath)
+		missingModel = true
 	}
+
+	if missingBinary || missingModel {
+		return missingWhisperSetupError(searchRoots, binaryPath, modelPath, missingBinary, missingModel)
+	}
+
 	return nil
+}
+
+func missingWhisperSetupError(searchRoots []string, binaryPath, modelPath string, missingBinary, missingModel bool) error {
+	installDir := preferredWhisperInstallDir(searchRoots)
+	expectedBinary := filepath.Join(installDir, whisperExecutableName())
+	expectedModel := filepath.Join(installDir, "models", filepath.Base(modelPath))
+	binaryLocation := expectedBinary
+	modelLocation := expectedModel
+
+	if isPathReference(binaryPath) {
+		binaryLocation = binaryPath
+	}
+	if isPathReference(modelPath) {
+		modelLocation = modelPath
+	}
+
+	problems := make([]string, 0, 2)
+	if missingBinary {
+		problems = append(problems, fmt.Sprintf("binary missing at %q", binaryLocation))
+	}
+	if missingModel {
+		problems = append(problems, fmt.Sprintf("model missing at %q", modelLocation))
+	}
+
+	message := fmt.Sprintf(
+		"whisper-server setup is incomplete: %s. Install whisper.cpp's whisper-server and GGML models under %q (see %q), or make whisper-server available on PATH",
+		strings.Join(problems, "; "),
+		installDir,
+		filepath.Join(installDir, "README.md"),
+	)
+
+	if !missingBinary && isPathReference(binaryPath) {
+		return fmt.Errorf("%s. Configured binary path: %q", message, binaryPath)
+	}
+
+	return fmt.Errorf("%s.", message)
+}
+
+func preferredWhisperInstallDir(searchRoots []string) string {
+	for _, root := range normalizeSearchRoots(searchRoots) {
+		candidate := filepath.Join(root, "services", "whisper-server")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+
+	if len(searchRoots) > 0 {
+		return filepath.Join(searchRoots[0], "services", "whisper-server")
+	}
+
+	return filepath.Join("services", "whisper-server")
+}
+
+func whisperExecutableName() string {
+	if os.PathSeparator == '\\' {
+		return "whisper-server.exe"
+	}
+	return "whisper-server"
 }
 
 func validateCommandAvailability(commandPath, displayName string) error {
