@@ -12,6 +12,9 @@
 - Run project git commands from `C:\Users\datvu\projects\sub-generator`; do not use the parent `C:\Users\datvu\projects` repo for this project.
 - If `rg.exe` is blocked in PowerShell, use `Select-String` and `Get-ChildItem` as the repository search fallback.
 - If the Tauri app uses `externalBin` sidecars, verify the bundled sidecar executable is rebuilt when `go-sidecar/` changes.
+- For `tauri dev`, avoid rebuilding or recopying the sidecar on unrelated Rust/UI changes; only refresh the dev copies when `go-sidecar/` is newer, otherwise Windows can fail on a locked `subgen-sidecar.exe`.
+- If a dev sidecar copy is locked during `tauri dev`, warn and continue the rebuild; only require the user to close the active app when they need the newly built sidecar binary to replace the locked one.
+- For `tauri dev`, keep `bundle.externalBin` enabled for packaging but override it out of `TAURI_CONFIG` in debug builds; otherwise `tauri-build` can panic trying to delete a locked sidecar in `src-tauri/target/dev-tauri/debug/`.
 - For `tauri dev`, do not assume refreshing `src-tauri/subgen-sidecar-<target>.exe` is enough; also sync the built sidecar into `src-tauri/target/debug/` and `src-tauri/target/dev-tauri/debug/` so the running dev app does not reuse a stale sidecar.
 - If a required runtime dependency is intentionally external, convert raw PATH/startup failures into actionable setup guidance before surfacing them in the UI.
 - If backend language discovery is unavailable at startup, preserve the built-in language selector options and surface the translation setup issue as a non-fatal warning instead of blocking the transcription UI.
@@ -19,6 +22,7 @@
 - For video transcription, start `whisper-server` with `--convert` and validate `ffmpeg` first; otherwise the server can reject `.mp4`/video uploads with a generic `400 Invalid request`.
 - The bundled `whisper-server` returns subtitle-ready timestamps only with `response_format=verbose_json`; parse current `segments[].start`/`end` values as seconds, and keep legacy `t0`/`t1` millisecond parsing only as a fallback.
 - If `whisper-server` returns zero segments, fail in the pipeline with explicit no-speech / missing-timestamps guidance before the subtitle writer runs; do not surface `astisub: no subtitles to write` directly.
+- If `whisper-server` returns a mix of usable and unusable segment timings, drop only the unusable segments and continue; fail only when no subtitle-safe timed segments remain.
 - For this desktop-only Tauri app, avoid `staticlib` in `src-tauri/Cargo.toml`; it produces a massive `app_lib.lib` on Windows and can fail rebuilds with archive rename access errors.
 - If Windows dev builds lock `subgen.pdb`, disable dev debug info in `src-tauri/Cargo.toml` (`[profile.dev] debug = 0`) rather than fighting repeated PDB replace failures.
 - If `tauri dev` is still blocked by stale Windows debug artifacts, isolate Rust outputs with `src-tauri/.cargo/config.toml` and a dedicated target dir instead of reusing `src-tauri/target/debug`.
