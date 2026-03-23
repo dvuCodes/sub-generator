@@ -1,6 +1,5 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -44,14 +43,35 @@ fn build_go_sidecar(manifest_dir: &Path, go_sidecar_dir: &Path) {
         panic!("go build failed for sidecar at {}", output_path.display());
     }
 
-    // Tauri copies the external bin during its build; removing any stale debug copy
-    // prevents it from reusing an older sidecar if the external-bin copy step is skipped.
-    let stale_debug_binary = manifest_dir.join("target").join("debug").join(if target.contains("windows") {
+    sync_dev_sidecar_copies(manifest_dir, &output_path, target.contains("windows"));
+}
+
+fn sync_dev_sidecar_copies(manifest_dir: &Path, source_path: &Path, is_windows: bool) {
+    let sidecar_name = if is_windows {
         "subgen-sidecar.exe"
     } else {
         "subgen-sidecar"
-    });
-    if stale_debug_binary.exists() {
-        let _ = fs::remove_file(stale_debug_binary);
+    };
+    let copy_targets = [
+        manifest_dir.join("target").join("debug").join(sidecar_name),
+        manifest_dir
+            .join("target")
+            .join("dev-tauri")
+            .join("debug")
+            .join(sidecar_name),
+    ];
+
+    for destination in copy_targets {
+        if let Some(parent) = destination.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        fs::copy(source_path, &destination).unwrap_or_else(|err| {
+            panic!(
+                "failed to sync sidecar from {} to {}: {}",
+                source_path.display(),
+                destination.display(),
+                err
+            )
+        });
     }
 }

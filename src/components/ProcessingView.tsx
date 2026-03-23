@@ -1,6 +1,6 @@
 interface ProcessingViewProps {
   stage: string;
-  percent: number;
+  percent: number | null;
   message: string;
 }
 
@@ -26,6 +26,8 @@ export function ProcessingView({
   message,
 }: ProcessingViewProps) {
   const currentIndex = STAGE_ORDER.indexOf(stage);
+  const isDeterminate = typeof percent === "number";
+  const displayPercent = isDeterminate ? Math.round(percent) : null;
 
   return (
     <div className="space-y-6">
@@ -66,13 +68,19 @@ export function ProcessingView({
       <div>
         <div className="flex justify-between text-sm mb-1">
           <span className="text-gray-300">{message}</span>
-          <span className="text-gray-400">{Math.round(percent)}%</span>
+          <span className="text-gray-400">
+            {isDeterminate ? `${displayPercent}%` : "Working..."}
+          </span>
         </div>
         <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
-          <div
-            className="bg-blue-500 h-full rounded-full transition-all duration-300"
-            style={{ width: `${Math.min(percent, 100)}%` }}
-          />
+          {isDeterminate ? (
+            <div
+              className="bg-blue-500 h-full rounded-full transition-all duration-300"
+              style={{ width: `${displayPercent}%` }}
+            />
+          ) : (
+            <div className="processing-indeterminate h-full w-2/5 rounded-full bg-blue-500" />
+          )}
         </div>
       </div>
     </div>

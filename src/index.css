@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+@keyframes processing-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(280%);
+  }
+}
+
+.processing-indeterminate {
+  animation: processing-indeterminate 1.35s ease-in-out infinite;
+  will-change: transform;
+}

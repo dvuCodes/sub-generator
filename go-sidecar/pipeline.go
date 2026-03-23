@@ -58,6 +58,11 @@ func (p *Pipeline) Run(cmd Command) {
 		return
 	}
 
+	if err := validateTranscriptionResult(result); err != nil {
+		sendError("Transcription failed", err.Error())
+		return
+	}
+
 	sendProgress("transcribing", 100, fmt.Sprintf("Transcribed %d segments", len(result.Segments)))
 
 	segments := result.Segments
@@ -173,4 +178,20 @@ func supportedExtsList() string {
 		exts = append(exts, ext)
 	}
 	return strings.Join(exts, ", ")
+}
+
+func validateTranscriptionResult(result *TranscriptionResult) error {
+	if result == nil {
+		return fmt.Errorf("whisper-server returned no transcription result")
+	}
+
+	if len(result.Segments) > 0 {
+		return nil
+	}
+
+	if strings.TrimSpace(result.Text) != "" {
+		return fmt.Errorf("whisper-server returned transcript text but no timestamped segments, so subtitle timing could not be generated")
+	}
+
+	return fmt.Errorf("no speech was detected in the input video, so there are no subtitle segments to write")
 }
