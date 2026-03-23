@@ -18,9 +18,15 @@ type Transcriber struct {
 }
 
 func NewTranscriber(port int) *Transcriber {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+
 	return &Transcriber{
 		baseURL: localServiceBaseURL(port),
-		client:  &http.Client{Timeout: 30 * time.Minute}, // Long timeout for large files
+		client: &http.Client{
+			Timeout:   30 * time.Minute, // Long timeout for large files
+			Transport: transport,
+		},
 	}
 }
 
@@ -120,71 +126,72 @@ func newInferenceRequest(
 	beamSize int,
 	vadFilter bool,
 ) (*http.Request, string, func(), error) {
-	file, err := os.Open(videoPath)
+	videoFile, err := os.Open(videoPath)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("failed to open video file: %w", err)
 	}
+	defer videoFile.Close()
 
-	pipeReader, pipeWriter := io.Pipe()
-	writer := multipart.NewWriter(pipeWriter)
+	bodyFile, err := os.CreateTemp("", "subgen-whisper-upload-*.multipart")
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("failed to create multipart temp file: %w", err)
+	}
+
+	cleanup := func() {
+		_ = bodyFile.Close()
+		_ = os.Remove(bodyFile.Name())
+	}
+
+	writer := multipart.NewWriter(bodyFile)
 	contentType := writer.FormDataContentType()
 
-	req, err := http.NewRequest("POST", url, pipeReader)
+	part, err := writer.CreateFormFile("file", filepath.Base(videoPath))
 	if err != nil {
-		_ = pipeReader.Close()
-		_ = pipeWriter.Close()
-		_ = file.Close()
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to create form file: %w", err)
+	}
+	if _, err := io.Copy(part, videoFile); err != nil {
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to copy file: %w", err)
+	}
+	if err := writer.WriteField("response_format", "verbose_json"); err != nil {
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to write response_format: %w", err)
+	}
+	if err := writer.WriteField("temperature", "0"); err != nil {
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to write temperature: %w", err)
+	}
+	if err := writer.WriteField("beam_size", strconv.Itoa(beamSize)); err != nil {
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to write beam_size: %w", err)
+	}
+	if err := writer.WriteField("vad_filter", strconv.FormatBool(vadFilter)); err != nil {
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to write vad_filter: %w", err)
+	}
+	language := "auto"
+	if sourceLang != nil && *sourceLang != "" {
+		language = *sourceLang
+	}
+	if err := writer.WriteField("language", language); err != nil {
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to write language: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+	if _, err := bodyFile.Seek(0, io.SeekStart); err != nil {
+		cleanup()
+		return nil, "", nil, fmt.Errorf("failed to rewind multipart temp file: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bodyFile)
+	if err != nil {
+		cleanup()
 		return nil, "", nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	go func() {
-		defer file.Close()
-
-		closeWithError := func(err error) {
-			_ = pipeWriter.CloseWithError(err)
-		}
-
-		part, err := writer.CreateFormFile("file", filepath.Base(videoPath))
-		if err != nil {
-			closeWithError(fmt.Errorf("failed to create form file: %w", err))
-			return
-		}
-		if _, err := io.Copy(part, file); err != nil {
-			closeWithError(fmt.Errorf("failed to copy file: %w", err))
-			return
-		}
-		if err := writer.WriteField("response_format", "verbose_json"); err != nil {
-			closeWithError(fmt.Errorf("failed to write response_format: %w", err))
-			return
-		}
-		if err := writer.WriteField("temperature", "0"); err != nil {
-			closeWithError(fmt.Errorf("failed to write temperature: %w", err))
-			return
-		}
-		if err := writer.WriteField("beam_size", strconv.Itoa(beamSize)); err != nil {
-			closeWithError(fmt.Errorf("failed to write beam_size: %w", err))
-			return
-		}
-		if err := writer.WriteField("vad_filter", strconv.FormatBool(vadFilter)); err != nil {
-			closeWithError(fmt.Errorf("failed to write vad_filter: %w", err))
-			return
-		}
-		language := "auto"
-		if sourceLang != nil && *sourceLang != "" {
-			language = *sourceLang
-		}
-		if err := writer.WriteField("language", language); err != nil {
-			closeWithError(fmt.Errorf("failed to write language: %w", err))
-			return
-		}
-		if err := writer.Close(); err != nil {
-			closeWithError(fmt.Errorf("failed to close multipart writer: %w", err))
-			return
-		}
-		_ = pipeWriter.Close()
-	}()
-
-	return req, contentType, func() {
-		_ = req.Body.Close()
-	}, nil
+	return req, contentType, cleanup, nil
 }
