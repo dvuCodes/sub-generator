@@ -2,6 +2,9 @@ interface ProcessingViewProps {
   stage: string;
   percent: number | null;
   message: string;
+  onStop?: () => void;
+  stopDisabled?: boolean;
+  stopLabel?: string;
 }
 
 const STAGE_ORDER = [
@@ -24,6 +27,9 @@ export function ProcessingView({
   stage,
   percent,
   message,
+  onStop,
+  stopDisabled = false,
+  stopLabel = "Stop",
 }: ProcessingViewProps) {
   const currentIndex = STAGE_ORDER.indexOf(stage);
   const isDeterminate = typeof percent === "number";
@@ -83,6 +89,24 @@ export function ProcessingView({
           )}
         </div>
       </div>
+
+      {onStop && (
+        <button
+          type="button"
+          onClick={onStop}
+          disabled={stopDisabled}
+          className={`
+            w-full rounded-lg border px-4 py-3 text-sm font-medium transition-colors
+            ${
+              stopDisabled
+                ? "cursor-not-allowed border-gray-700 bg-gray-800 text-gray-500"
+                : "border-red-500/40 bg-red-500/10 text-red-300 hover:border-red-400 hover:bg-red-500/20"
+            }
+          `}
+        >
+          {stopLabel}
+        </button>
+      )}
     </div>
   );
 }

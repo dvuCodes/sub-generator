@@ -37,7 +37,7 @@ interface SystemInfoState {
 }
 
 function App() {
-  const { connected, connecting, connect, sendCommand, onResponse } =
+  const { connected, connecting, connect, disconnect, sendCommand, onResponse } =
     useSidecar();
 
   const [videoPath, setVideoPath] = useState<string | null>(null);
@@ -57,6 +57,7 @@ function App() {
   const [availablePairs, setAvailablePairs] = useState<LanguagePair[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [translationWarning, setTranslationWarning] = useState("");
+  const [isStopping, setIsStopping] = useState(false);
 
   useEffect(() => {
     connect().catch((err) => {
@@ -185,6 +186,32 @@ function App() {
     setProcessing(createInitialProcessingState());
   }, []);
 
+  const handleStopProcessing = useCallback(async () => {
+    if (appState !== "processing" || isStopping) {
+      return;
+    }
+
+    setIsStopping(true);
+    setProcessing((current) => ({
+      ...current,
+      message: "Stopping processing...",
+    }));
+
+    try {
+      await disconnect();
+      setAppState("idle");
+      setCompletion(null);
+      setErrorMsg("");
+      setProcessing(createInitialProcessingState());
+      await connect();
+    } catch (err) {
+      setErrorMsg(`Failed to stop processing: ${err}`);
+      setAppState("error");
+    } finally {
+      setIsStopping(false);
+    }
+  }, [appState, connect, disconnect, isStopping]);
+
   const isProcessing = appState === "processing";
   const languageOptions = buildLanguageOptions(availablePairs);
   const translationStatus = systemInfo?.libretranslate
@@ -274,6 +301,9 @@ function App() {
                 stage={processing.stage}
                 percent={processing.percent}
                 message={processing.message}
+                onStop={handleStopProcessing}
+                stopDisabled={isStopping}
+                stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
               />
             )}
 
