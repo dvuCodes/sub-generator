@@ -5,7 +5,10 @@
       "Bash(git cherry-pick:*)",
       "Bash(git push:*)",
       "Bash(gh pr:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(go test:*)",
+      "Bash(bun test:*)",
+      "Bash(grep -r \"shadcn\\\\|@radix\\\\|headless\" /c/Users/datvu/Documents/code/sub-generator/package.json /c/Users/datvu/Documents/code/sub-generator/src --include=*.tsx --include=*.ts --include=*.json)"
     ]
   }
 }
