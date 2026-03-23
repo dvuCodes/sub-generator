@@ -1,3 +1,13 @@
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  CheckmarkCircle02Icon,
+  FolderOpenIcon,
+  RefreshIcon,
+} from "@hugeicons/core-free-icons";
+
 interface OutputResultProps {
   outputPath: string;
   segments: number;
@@ -26,54 +36,73 @@ export function OutputResult({
     }
   };
 
+  const formatDuration = (secs: number) =>
+    secs < 60
+      ? `${Math.round(secs)}s`
+      : `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
+
   return (
-    <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-6 space-y-4">
-      <div className="text-center">
-        <div className="text-5xl mb-3">✅</div>
-        <h2 className="text-xl font-semibold text-green-400">
-          Subtitles Generated
-        </h2>
-      </div>
+    <Card className="border-chart-1/30 bg-chart-1/5">
+      <CardContent className="space-y-5">
+        <div className="flex flex-col items-center gap-3 pt-2">
+          <div className="flex size-14 items-center justify-center border border-chart-1/30 bg-chart-1/10">
+            <HugeiconsIcon
+              icon={CheckmarkCircle02Icon}
+              className="size-7 text-chart-1"
+              strokeWidth={1.5}
+            />
+          </div>
+          <div className="text-center">
+            <h2 className="text-sm font-medium text-foreground">
+              Subtitles Generated
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Processing complete
+            </p>
+          </div>
+        </div>
 
-      <div className="bg-gray-800/50 rounded-lg p-4 space-y-2">
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-400">File</span>
-          <span className="text-gray-200 font-mono text-xs">{fileName}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-400">Segments</span>
-          <span className="text-gray-200">{segments}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-400">Processing Time</span>
-          <span className="text-gray-200">
-            {durationSecs < 60
-              ? `${Math.round(durationSecs)}s`
-              : `${Math.floor(durationSecs / 60)}m ${Math.round(durationSecs % 60)}s`}
-          </span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-400">Location</span>
-          <span className="text-gray-200 font-mono text-xs truncate max-w-[250px]">
-            {dir}
-          </span>
-        </div>
-      </div>
+        <Separator />
 
-      <div className="flex gap-3">
-        <button
-          onClick={openInExplorer}
-          className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition-colors text-sm"
-        >
-          Open in Explorer
-        </button>
-        <button
-          onClick={onReset}
-          className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm"
-        >
-          Generate Another
-        </button>
-      </div>
-    </div>
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">File</span>
+            <span className="font-mono text-foreground">{fileName}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Segments</span>
+            <span className="font-mono text-foreground">{segments}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Duration</span>
+            <span className="font-mono text-foreground">
+              {formatDuration(durationSecs)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Location</span>
+            <span className="max-w-[220px] truncate font-mono text-foreground">
+              {dir}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="lg"
+            className="flex-1"
+            onClick={openInExplorer}
+          >
+            <HugeiconsIcon icon={FolderOpenIcon} className="size-4" strokeWidth={1.5} />
+            Open Folder
+          </Button>
+          <Button size="lg" className="flex-1" onClick={onReset}>
+            <HugeiconsIcon icon={RefreshIcon} className="size-4" strokeWidth={1.5} />
+            New File
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,4 +1,6 @@
 import type { OutputFormat } from "../lib/types";
+import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
 
 interface FormatSelectorProps {
   format: OutputFormat;
@@ -10,17 +12,17 @@ const FORMATS: { id: OutputFormat; name: string; desc: string }[] = [
   {
     id: "srt",
     name: "SRT",
-    desc: "Most compatible, works everywhere",
+    desc: "Universal",
   },
   {
     id: "ass",
     name: "ASS",
-    desc: "Advanced styling, great for CJK",
+    desc: "Styled / CJK",
   },
   {
     id: "vtt",
     name: "WebVTT",
-    desc: "Web standard format",
+    desc: "Web standard",
   },
 ];
 
@@ -30,26 +32,26 @@ export function FormatSelector({
   disabled,
 }: FormatSelectorProps) {
   return (
-    <div>
-      <label className="block text-sm text-gray-400 mb-2">Output Format</label>
-      <div className="flex gap-2">
+    <div className="space-y-2">
+      <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+        Output Format
+      </Label>
+      <div className="flex gap-1.5">
         {FORMATS.map((f) => (
           <button
             key={f.id}
             onClick={() => onChange(f.id)}
             disabled={disabled}
-            className={`
-              flex-1 px-4 py-2 rounded-lg border text-center transition-all
-              ${
-                format === f.id
-                  ? "border-blue-500 bg-blue-500/10 text-blue-400"
-                  : "border-gray-700 hover:border-gray-500 text-gray-300"
-              }
-              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-            `}
+            className={cn(
+              "flex-1 border px-4 py-2.5 text-center text-xs transition-all",
+              format === f.id
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border hover:border-muted-foreground hover:bg-muted/30 text-muted-foreground hover:text-foreground",
+              disabled && "opacity-50 cursor-not-allowed"
+            )}
           >
-            <div className="font-medium text-sm">{f.name}</div>
-            <div className="text-xs text-gray-500 mt-1">{f.desc}</div>
+            <div className="font-medium">{f.name}</div>
+            <div className="mt-0.5 text-[10px] opacity-60">{f.desc}</div>
           </button>
         ))}
       </div>

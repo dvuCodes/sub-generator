@@ -1,4 +1,11 @@
 import type { ModelSize } from "../lib/types";
+import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ModelSelectorProps {
   model: ModelSize;
@@ -63,29 +70,36 @@ export function ModelSelector({
   disabled,
 }: ModelSelectorProps) {
   return (
-    <div>
-      <label className="block text-sm text-gray-400 mb-2">Whisper Model</label>
-      <div className="grid grid-cols-3 gap-2">
+    <div className="space-y-2">
+      <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+        Model
+      </Label>
+      <div className="grid grid-cols-3 gap-1.5">
         {MODELS.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => onChange(m.id)}
-            disabled={disabled}
-            className={`
-              p-3 rounded-lg border text-left transition-all
-              ${
-                model === m.id
-                  ? "border-blue-500 bg-blue-500/10 text-blue-400"
-                  : "border-gray-700 hover:border-gray-500 text-gray-300"
-              }
-              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-            `}
-          >
-            <div className="font-medium text-sm">{m.name}</div>
-            <div className="text-xs text-gray-500 mt-1">
-              {m.size} &middot; {m.speed}
-            </div>
-          </button>
+          <Tooltip key={m.id}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onChange(m.id)}
+                disabled={disabled}
+                className={cn(
+                  "relative px-3 py-2.5 text-left text-xs transition-all border",
+                  model === m.id
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border hover:border-muted-foreground hover:bg-muted/30 text-muted-foreground hover:text-foreground",
+                  disabled && "opacity-50 cursor-not-allowed"
+                )}
+              >
+                <div className="font-medium">{m.name}</div>
+                <div className="mt-0.5 text-[10px] opacity-60">
+                  {m.size}
+                </div>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>{m.desc}</p>
+              <p className="text-muted-foreground mt-0.5">Speed: {m.speed}</p>
+            </TooltipContent>
+          </Tooltip>
         ))}
       </div>
     </div>
