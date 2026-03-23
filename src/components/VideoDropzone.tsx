@@ -1,4 +1,7 @@
 import { useCallback, useState } from "react";
+import { cn } from "@/lib/utils";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Film01Icon, CloudUploadIcon } from "@hugeicons/core-free-icons";
 
 interface VideoDropzoneProps {
   selectedFile: string | null;
@@ -84,44 +87,55 @@ export function VideoDropzone({
   const fileName = selectedFile?.split(/[/\\]/).pop() ?? null;
 
   return (
-    <div
-      className={`
-        cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-all
-        ${isDragOver ? "border-blue-400 bg-blue-400/10" : "border-gray-700 hover:border-gray-500"}
-        ${disabled ? "cursor-not-allowed opacity-50" : ""}
-        ${selectedFile ? "border-green-500/50 bg-green-500/5" : ""}
-      `}
+    <button
+      type="button"
+      className={cn(
+        "group relative w-full border border-dashed p-8 text-center transition-all",
+        "focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 outline-none",
+        isDragOver && "border-primary bg-primary/5",
+        !isDragOver && !selectedFile && "border-border hover:border-muted-foreground hover:bg-muted/30",
+        selectedFile && "border-chart-1/40 bg-chart-1/5",
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+      )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onClick={disabled ? undefined : handleBrowse}
+      disabled={disabled}
     >
       {selectedFile ? (
-        <div className="space-y-2">
-          <div className="text-xs uppercase tracking-[0.35em] text-green-400">
-            Selected
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex size-12 items-center justify-center border border-chart-1/30 bg-chart-1/10">
+            <HugeiconsIcon icon={Film01Icon} className="size-6 text-chart-1" strokeWidth={1.5} />
           </div>
-          <p className="font-medium text-green-400">{fileName}</p>
-          <p className="text-sm text-gray-500">
-            Click to choose a different file
-          </p>
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-[0.2em] text-chart-1">
+              Selected
+            </p>
+            <p className="font-medium text-foreground">{fileName}</p>
+            <p className="text-xs text-muted-foreground">
+              Click to choose a different file
+            </p>
+          </div>
         </div>
       ) : (
-        <div className="space-y-2">
-          <div className="text-xs uppercase tracking-[0.35em] text-gray-500">
-            Input Video
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex size-12 items-center justify-center border border-border bg-muted/50 transition-colors group-hover:border-muted-foreground/50 group-hover:bg-muted">
+            <HugeiconsIcon icon={CloudUploadIcon} className="size-6 text-muted-foreground transition-colors group-hover:text-foreground" strokeWidth={1.5} />
           </div>
-          <p className="font-medium text-gray-300">
-            Click to select a video file
-          </p>
-          <p className="text-sm text-gray-500">
-            Drop works when the desktop runtime exposes a file path.
-          </p>
-          <p className="text-xs text-gray-600">
-            Supports: {SUPPORTED_EXTENSIONS.join(", ")}
-          </p>
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+              Input Video
+            </p>
+            <p className="font-medium text-foreground">
+              Click to select a video file
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {SUPPORTED_EXTENSIONS.join(" ")}
+            </p>
+          </div>
         </div>
       )}
-    </div>
+    </button>
   );
 }
