@@ -18,4 +18,16 @@ describe("formatRuntimeError", () => {
     expect(formatRuntimeError("Validation failed", "unsupported video format"))
       .toBe("Validation failed: unsupported video format");
   });
+
+  it("turns a libretranslate PATH failure into setup guidance", () => {
+    const error = formatRuntimeError(
+      "Failed to list languages",
+      'libretranslate executable "libretranslate" not found in PATH'
+    );
+
+    expect(error).toContain("Failed to list languages:");
+    expect(error).toContain("LibreTranslate is not installed");
+    expect(error).toContain('"libretranslate" executable');
+    expect(error).toContain("PATH");
+  });
 });

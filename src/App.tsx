@@ -7,6 +7,12 @@ import { ProcessingView } from "./components/ProcessingView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { VideoDropzone } from "./components/VideoDropzone";
 import { useSidecar } from "./hooks/useSidecar";
+import { buildLanguageOptions } from "./lib/languageOptions";
+import {
+  advanceProcessingState,
+  createInitialProcessingState,
+  type ProcessingState,
+} from "./lib/processingState";
 import { formatRuntimeError } from "./lib/runtimeError";
 import type {
   GenerateCommand,
@@ -18,12 +24,6 @@ import type {
 
 type AppState = "idle" | "processing" | "complete" | "error";
 
-interface ProcessingState {
-  stage: string;
-  percent: number;
-  message: string;
-}
-
 interface CompletionState {
   outputPath: string;
   segments: number;
@@ -34,74 +34,6 @@ interface SystemInfoState {
   whisperServer: boolean;
   libretranslate: boolean;
   gpu: string;
-}
-
-const LANGUAGE_LABELS: Record<string, string> = {
-  auto: "Auto-detect",
-  ar: "Arabic",
-  cs: "Czech",
-  da: "Danish",
-  de: "German",
-  el: "Greek",
-  en: "English",
-  es: "Spanish",
-  fi: "Finnish",
-  fr: "French",
-  hi: "Hindi",
-  hu: "Hungarian",
-  id: "Indonesian",
-  it: "Italian",
-  ja: "Japanese",
-  ko: "Korean",
-  ms: "Malay",
-  nl: "Dutch",
-  pl: "Polish",
-  pt: "Portuguese",
-  ro: "Romanian",
-  ru: "Russian",
-  sv: "Swedish",
-  th: "Thai",
-  tl: "Filipino",
-  tr: "Turkish",
-  uk: "Ukrainian",
-  vi: "Vietnamese",
-  zh: "Chinese",
-};
-
-function labelForLanguage(code: string) {
-  return LANGUAGE_LABELS[code] ?? code.toUpperCase();
-}
-
-function buildLanguageOptions(pairs: LanguagePair[]) {
-  if (pairs.length === 0) {
-    return {
-      source: [{ code: "auto", name: labelForLanguage("auto") }],
-      target: [{ code: "", name: "No translation (transcribe only)" }],
-    };
-  }
-
-  const sourceCodes = new Set<string>(["auto"]);
-  const targetCodes = new Set<string>();
-
-  for (const pair of pairs) {
-    sourceCodes.add(pair.source);
-    targetCodes.add(pair.target);
-  }
-
-  const toOptions = (codes: Set<string>) =>
-    Array.from(codes)
-      .sort((left, right) =>
-        labelForLanguage(left).localeCompare(labelForLanguage(right))
-      )
-      .map((code) => ({ code, name: labelForLanguage(code) }));
-
-  return {
-    source: toOptions(sourceCodes),
-    target: [
-      { code: "", name: "No translation (transcribe only)" },
-      ...toOptions(targetCodes),
-    ],
-  };
 }
 
 function App() {
@@ -117,15 +49,14 @@ function App() {
   const [vadFilter, setVadFilter] = useState(true);
 
   const [appState, setAppState] = useState<AppState>("idle");
-  const [processing, setProcessing] = useState<ProcessingState>({
-    stage: "",
-    percent: 0,
-    message: "",
-  });
+  const [processing, setProcessing] = useState<ProcessingState>(
+    createInitialProcessingState
+  );
   const [completion, setCompletion] = useState<CompletionState | null>(null);
   const [systemInfo, setSystemInfo] = useState<SystemInfoState | null>(null);
   const [availablePairs, setAvailablePairs] = useState<LanguagePair[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
+  const [translationWarning, setTranslationWarning] = useState("");
 
   useEffect(() => {
     connect().catch((err) => {
@@ -138,18 +69,10 @@ function App() {
     onResponse((response: SidecarResponse) => {
       switch (response.type) {
         case "progress":
-          setProcessing({
-            stage: response.stage,
-            percent: response.percent,
-            message: response.message,
-          });
+          setProcessing((current) => advanceProcessingState(current, response));
           break;
         case "stage":
-          setProcessing((prev) => ({
-            ...prev,
-            stage: response.stage,
-            message: response.message,
-          }));
+          setProcessing((current) => advanceProcessingState(current, response));
           break;
         case "complete":
           setCompletion({
@@ -161,6 +84,7 @@ function App() {
           break;
         case "languages":
           setAvailablePairs(response.installed);
+          setTranslationWarning("");
           setSystemInfo((prev) =>
             prev
               ? { ...prev, libretranslate: true }
@@ -177,11 +101,25 @@ function App() {
             libretranslate: response.libretranslate,
             gpu: response.gpu,
           });
+          if (response.libretranslate) {
+            setTranslationWarning("");
+          }
           break;
-        case "error":
-          setErrorMsg(formatRuntimeError(response.message, response.details));
+        case "error": {
+          const formattedError = formatRuntimeError(
+            response.message,
+            response.details
+          );
+
+          if (response.message === "Failed to list languages") {
+            setTranslationWarning(formattedError);
+            break;
+          }
+
+          setErrorMsg(formattedError);
           setAppState("error");
           break;
+        }
       }
     });
   }, [onResponse]);
@@ -203,7 +141,11 @@ function App() {
     if (!videoPath || !connected) return;
 
     setAppState("processing");
-    setProcessing({ stage: "validating", percent: 0, message: "Starting..." });
+    setProcessing({
+      stage: "validating",
+      percent: null,
+      message: "Starting...",
+    });
     setErrorMsg("");
 
     try {
@@ -240,14 +182,15 @@ function App() {
     setVideoPath(null);
     setCompletion(null);
     setErrorMsg("");
-    setProcessing({ stage: "", percent: 0, message: "" });
+    setProcessing(createInitialProcessingState());
   }, []);
 
   const isProcessing = appState === "processing";
   const languageOptions = buildLanguageOptions(availablePairs);
   const translationStatus = systemInfo?.libretranslate
-    ? `LibreTranslate ready. ${languageOptions.target.length - 1} translation targets available.`
-    : "LibreTranslate will start automatically when translation is needed.";
+    ? `LibreTranslate ready. ${languageOptions.target.length} translation targets available.`
+    : translationWarning ||
+      "LibreTranslate will start automatically when translation is needed.";
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">

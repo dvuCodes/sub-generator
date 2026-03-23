@@ -61,11 +61,11 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 		return err
 	}
 
-	cmd := exec.Command(
-		whisperBinary,
-		"-m", whisperModel,
-		"--port", fmt.Sprintf("%d", sm.config.WhisperPort),
-	)
+	if err := validateWhisperRuntimeDependencies(sm.config.SearchRoots, whisperBinary, whisperModel, true); err != nil {
+		return err
+	}
+
+	cmd := buildWhisperCommand(whisperBinary, whisperModel, sm.config.WhisperPort)
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
@@ -209,6 +209,15 @@ func runCommand(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+func buildWhisperCommand(binaryPath, modelPath string, port int) *exec.Cmd {
+	return exec.Command(
+		binaryPath,
+		"-m", modelPath,
+		"--port", fmt.Sprintf("%d", port),
+		"--convert",
+	)
+}
+
 func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) error {
 	missingBinary := false
 	if err := validateCommandAvailability(binaryPath, "whisper-server"); err != nil {
@@ -222,6 +231,21 @@ func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) 
 
 	if missingBinary || missingModel {
 		return missingWhisperSetupError(searchRoots, binaryPath, modelPath, missingBinary, missingModel)
+	}
+
+	return nil
+}
+
+func validateWhisperRuntimeDependencies(searchRoots []string, binaryPath, modelPath string, convertInput bool) error {
+	if !convertInput {
+		return nil
+	}
+
+	if err := validateCommandAvailability("ffmpeg", "ffmpeg"); err != nil {
+		return fmt.Errorf(
+			"ffmpeg is required to transcribe video files with whisper-server --convert, but %w. Install ffmpeg and add it to PATH before generating subtitles",
+			err,
+		)
 	}
 
 	return nil
