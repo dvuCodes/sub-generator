@@ -81,6 +81,20 @@ func (p *Pipeline) Run(cmd Command) {
 			sourceLang = result.Language
 		}
 
+		if pairs, err := translator.ListLanguages(); err == nil {
+			if !supportsTranslationPair(pairs, sourceLang, *cmd.TargetLang) {
+				sendError(
+					"Translation failed",
+					fmt.Sprintf(
+						"translation pair %s -> %s is not available according to LibreTranslate",
+						sourceLang,
+						*cmd.TargetLang,
+					),
+				)
+				return
+			}
+		}
+
 		translated, err := translator.TranslateSegments(
 			segments,
 			sourceLang,
