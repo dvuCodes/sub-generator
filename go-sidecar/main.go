@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 )
+
+var stdoutMu sync.Mutex
 
 type libreTranslateService interface {
 	IsLibreTranslateRunning() bool
@@ -121,7 +124,9 @@ func sendJSON(v any) {
 		fmt.Fprintf(os.Stderr, "JSON marshal error: %v\n", err)
 		return
 	}
+	stdoutMu.Lock()
 	fmt.Println(string(data))
+	stdoutMu.Unlock()
 }
 
 func sendError(message, details string) {
@@ -147,6 +152,20 @@ func sendStage(stage, message string) {
 		Stage:   stage,
 		Message: message,
 	})
+}
+
+func sendTimerProgress(stage string, percent float64, message string, elapsedSecs float64, etaSecs float64) {
+	resp := ProgressResponse{
+		Type:        "progress",
+		Stage:       stage,
+		Percent:     percent,
+		Message:     message,
+		ElapsedSecs: &elapsedSecs,
+	}
+	if etaSecs > 0 {
+		resp.ETASecs = &etaSecs
+	}
+	sendJSON(resp)
 }
 
 func detectGPU() string {

@@ -8,6 +8,8 @@ interface ProcessingViewProps {
   stage: string;
   percent: number | null;
   message: string;
+  elapsedSecs: number | null;
+  etaSecs: number | null;
   onStop?: () => void;
   stopDisabled?: boolean;
   stopLabel?: string;
@@ -31,10 +33,22 @@ const STAGE_LABELS: Record<string, string> = {
   writing: "Write",
 };
 
+function formatTime(secs: number): string {
+  const total = Math.round(secs);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export function ProcessingView({
   stage,
   percent,
   message,
+  elapsedSecs,
+  etaSecs: _etaSecs,
   onStop,
   stopDisabled = false,
   stopLabel = "Stop",
@@ -95,7 +109,11 @@ export function ProcessingView({
         <div className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">{message}</span>
           <span className="font-mono text-foreground">
-            {isDeterminate ? `${displayPercent}%` : "---"}
+            {elapsedSecs != null
+              ? formatTime(elapsedSecs)
+              : isDeterminate
+                ? `${displayPercent}%`
+                : "---"}
           </span>
         </div>
         {isDeterminate ? (

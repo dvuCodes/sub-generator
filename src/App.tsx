@@ -153,6 +153,8 @@ function App() {
       stage: "validating",
       percent: null,
       message: "Starting...",
+      elapsedSecs: null,
+      etaSecs: null,
     });
     setErrorMsg("");
 
@@ -333,6 +335,8 @@ function App() {
                   stage={processing.stage}
                   percent={processing.percent}
                   message={processing.message}
+                  elapsedSecs={processing.elapsedSecs}
+                  etaSecs={processing.etaSecs}
                   onStop={handleStopProcessing}
                   stopDisabled={isStopping}
                   stopLabel={isStopping ? "Stopping..." : "Stop Processing"}

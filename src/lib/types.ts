@@ -50,6 +50,8 @@ export interface ProgressResponse {
   stage: string;
   percent: number;
   message: string;
+  elapsed_secs?: number;
+  eta_secs?: number;
 }
 
 export interface StageResponse {
