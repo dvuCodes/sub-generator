@@ -37,14 +37,40 @@ func (p *Pipeline) Run(cmd Command) {
 		return
 	}
 
-	// Step 2: Ensure services are running
+	// Step 2: Download model if missing
+	modelFile := modelFilename(cmd.ModelSize)
+	installDir := preferredWhisperInstallDir(p.svcManager.config.SearchRoots)
+	modelPath := filepath.Join(installDir, "models", modelFile)
+
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		sendStage("downloading_model", fmt.Sprintf("Downloading %s model...", cmd.ModelSize))
+		url := ModelDownloadURL(cmd.ModelSize)
+		if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
+			sendError("Model download failed", err.Error())
+			return
+		}
+		if err := DownloadModel(url, modelPath, func(downloaded, total int64) {
+			if total > 0 {
+				pct := float64(downloaded) / float64(total) * 100
+				sendProgress("downloading_model", pct, fmt.Sprintf("Downloading %s / %s", formatBytes(downloaded), formatBytes(total)))
+			} else {
+				sendProgress("downloading_model", 0, fmt.Sprintf("Downloading %s...", formatBytes(downloaded)))
+			}
+		}); err != nil {
+			sendError("Model download failed", err.Error())
+			return
+		}
+		sendProgress("downloading_model", 100, "Model downloaded")
+	}
+
+	// Step 3: Ensure services are running
 	sendStage("starting_services", "Ensuring services are running...")
 	if err := p.ensureServices(cmd); err != nil {
 		sendError("Service startup failed", err.Error())
 		return
 	}
 
-	// Step 3: Transcribe
+	// Step 4: Transcribe
 	sendStage("transcribing", "Transcribing speech...")
 	transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
 	result, err := transcriber.Transcribe(
@@ -67,7 +93,7 @@ func (p *Pipeline) Run(cmd Command) {
 
 	segments := result.Segments
 
-	// Step 4: Translate (if target language specified)
+	// Step 5: Translate (if target language specified)
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
 		sendStage("translating", fmt.Sprintf("Translating to %s...", *cmd.TargetLang))
 
@@ -112,7 +138,7 @@ func (p *Pipeline) Run(cmd Command) {
 		segments = translated
 	}
 
-	// Step 5: Write subtitle file
+	// Step 6: Write subtitle file
 	sendStage("writing", "Writing subtitle file...")
 
 	outputFormat := cmd.OutputFormat
