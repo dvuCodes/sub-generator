@@ -32,7 +32,8 @@ export function OutputResult({
   const openInExplorer = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-shell");
-      await open(dir);
+      const fileUrl = `file:///${dir.replace(/\\/g, "/")}`;
+      await open(fileUrl);
     } catch (err) {
       console.error("Failed to open directory:", err);
     }

@@ -20,15 +20,30 @@ var supportedVideoExts = map[string]bool{
 }
 
 type Pipeline struct {
-	svcManager *ServiceManager
+	svcManager       *ServiceManager
+	cleanupServices func()
 }
 
 func NewPipeline(svcManager *ServiceManager) *Pipeline {
-	return &Pipeline{svcManager: svcManager}
+	return &Pipeline{
+		svcManager:       svcManager,
+		cleanupServices: svcManager.StopAll,
+	}
+}
+
+func (p *Pipeline) stopServices() {
+	if p.cleanupServices != nil {
+		p.cleanupServices()
+		return
+	}
+	if p.svcManager != nil {
+		p.svcManager.StopAll()
+	}
 }
 
 func (p *Pipeline) Run(cmd Command) {
 	startTime := time.Now()
+	defer p.stopServices()
 
 	// Step 1: Validate input
 	sendStage("validating", "Validating input file...")
