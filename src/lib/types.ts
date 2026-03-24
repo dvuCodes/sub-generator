@@ -9,6 +9,14 @@ export type ModelSize =
 
 export type OutputFormat = "srt" | "ass" | "vtt";
 
+export interface VadParams {
+  vad_threshold: number;
+  vad_min_speech_duration_ms: number;
+  vad_min_silence_duration_ms: number;
+  vad_max_speech_duration_s: number;
+  vad_speech_pad_ms: number;
+}
+
 export interface GenerateCommand {
   command: "generate";
   input_video: string;
@@ -19,6 +27,7 @@ export interface GenerateCommand {
   model_size: ModelSize;
   beam_size: number;
   vad_filter: boolean;
+  vad_params?: VadParams;
 }
 
 export interface ListLanguagesCommand {
