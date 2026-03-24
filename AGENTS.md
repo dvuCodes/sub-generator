@@ -14,6 +14,7 @@
 - If the Tauri app uses `externalBin` sidecars, verify the bundled sidecar executable is rebuilt when `go-sidecar/` changes.
 - For `tauri dev`, avoid rebuilding or recopying the sidecar on unrelated Rust/UI changes; only refresh the dev copies when `go-sidecar/` is newer, otherwise Windows can fail on a locked `subgen-sidecar.exe`.
 - In WSL/Linux dev shells, ensure `go` is installed and on `PATH` before running `tauri dev`; the sidecar is built from `go-sidecar/` during the Tauri build and otherwise fails before the app starts.
+- If WSL package installs are blocked by missing `sudo` access, a user-local Go install under `$HOME/.local/go/bin` is sufficient for `go test ./...` and `tauri dev` as long as that path is exported before running the toolchain.
 - If a dev sidecar copy is locked during `tauri dev`, warn and continue the rebuild; only require the user to close the active app when they need the newly built sidecar binary to replace the locked one.
 - For `tauri dev`, keep `bundle.externalBin` enabled for packaging but override it out of `TAURI_CONFIG` in debug builds; otherwise `tauri-build` can panic trying to delete a locked sidecar in `src-tauri/target/dev-tauri/debug/`.
 - For `tauri dev`, do not assume refreshing `src-tauri/subgen-sidecar-<target>.exe` is enough; also sync the built sidecar into `src-tauri/target/debug/` and `src-tauri/target/dev-tauri/debug/` so the running dev app does not reuse a stale sidecar.

@@ -13,6 +13,9 @@ import (
 )
 
 var stdoutMu sync.Mutex
+var runGenerate = func(pipeline *Pipeline, cmd Command) {
+	pipeline.Run(cmd)
+}
 
 type translationService interface {
 	IsLlamaServerRunning() bool
@@ -65,7 +68,7 @@ func main() {
 func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) {
 	switch cmd.Command {
 	case "generate":
-		go pipeline.Run(cmd)
+		go runGenerate(pipeline, cmd)
 
 	case "list_languages":
 		langs, err := listAvailableLanguages()
