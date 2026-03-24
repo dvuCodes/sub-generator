@@ -15,6 +15,7 @@ interface ProcessingViewProps {
 
 const STAGE_ORDER = [
   "validating",
+  "downloading_model",
   "starting_services",
   "transcribing",
   "translating",
@@ -23,6 +24,7 @@ const STAGE_ORDER = [
 
 const STAGE_LABELS: Record<string, string> = {
   validating: "Validate",
+  downloading_model: "Download",
   starting_services: "Services",
   transcribing: "Transcribe",
   translating: "Translate",
