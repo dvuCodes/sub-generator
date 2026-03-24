@@ -19,7 +19,8 @@ type ServiceManager struct {
 	currentWhisperModelPath string
 	currentVADModelPath     string
 	currentVADParams        *VADParams
-	ltProcess               *os.Process
+	llamaProcess            *os.Process
+	currentLlamaModelPath   string
 	mu                      sync.Mutex
 }
 
@@ -31,15 +32,15 @@ func (sm *ServiceManager) StartAll() error {
 	if err := sm.StartWhisperServer("base", nil); err != nil {
 		return fmt.Errorf("whisper-server: %w", err)
 	}
-	if err := sm.StartLibreTranslate(); err != nil {
-		return fmt.Errorf("libretranslate: %w", err)
+	if err := sm.StartLlamaServer(); err != nil {
+		return fmt.Errorf("llama-server: %w", err)
 	}
 	return nil
 }
 
 func (sm *ServiceManager) StopAll() {
 	sm.StopWhisperServer()
-	sm.StopLibreTranslate()
+	sm.StopLlamaServer()
 }
 
 func (sm *ServiceManager) StartWhisperServer(modelSize string, vadParams *VADParams) error {
@@ -123,67 +124,80 @@ func (sm *ServiceManager) stopWhisperServerLocked() {
 	sm.currentVADParams = nil
 }
 
-func (sm *ServiceManager) StartLibreTranslate() error {
+func (sm *ServiceManager) StartLlamaServer() error {
+	llamaBinary := resolveLlamaServerBinary(sm.config.SearchRoots)
+	gemmaModel := resolveGemmaModelPath(sm.config.SearchRoots)
+
 	sm.mu.Lock()
-	currentProcess := sm.ltProcess
+	currentProcess := sm.llamaProcess
+	currentModel := sm.currentLlamaModelPath
 	sm.mu.Unlock()
 
 	if currentProcess != nil {
-		if sm.IsLibreTranslateRunning() {
+		if currentModel == gemmaModel && sm.IsLlamaServerRunning() {
 			return nil
 		}
-		sm.StopLibreTranslate()
-	} else if sm.IsLibreTranslateRunning() {
+		sm.StopLlamaServer()
+	} else if sm.IsLlamaServerRunning() {
 		return nil
 	}
 
-	if err := validateCommandAvailability("libretranslate", "libretranslate"); err != nil {
-		return err
+	if err := validateCommandAvailability(llamaBinary, "llama-server"); err != nil {
+		return fmt.Errorf(
+			"llama-server is required for translation. Download it from llama.cpp releases and place it in services/llama-server/: %w",
+			err,
+		)
 	}
 
-	cmd := exec.Command(
-		"libretranslate",
-		"--port", fmt.Sprintf("%d", sm.config.LibreTranslatePort),
-	)
+	if gemmaModel == "" {
+		return fmt.Errorf(
+			"GemmaTranslate model not found. It will be downloaded automatically when translation is requested, or place %s in services/llama-server/models/",
+			gemmaModelFilenameConst,
+		)
+	}
+
+	cmd := buildLlamaCommand(llamaBinary, gemmaModel, sm.config.LlamaServerPort)
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start libretranslate: %w", err)
+		return fmt.Errorf("failed to start llama-server %q: %w", llamaBinary, err)
 	}
 
 	sm.mu.Lock()
-	sm.ltProcess = cmd.Process
+	sm.llamaProcess = cmd.Process
+	sm.currentLlamaModelPath = gemmaModel
 	sm.mu.Unlock()
 
-	if err := waitForService(localServiceURL(sm.config.LibreTranslatePort, "/languages"), 120*time.Second); err != nil {
-		sm.StopLibreTranslate()
-		return fmt.Errorf("libretranslate failed to start: %w", err)
+	if err := waitForService(localServiceURL(sm.config.LlamaServerPort, "/health"), 120*time.Second); err != nil {
+		sm.StopLlamaServer()
+		return fmt.Errorf("llama-server failed to start using %q with model %q: %w", llamaBinary, gemmaModel, err)
 	}
 
 	return nil
 }
 
-func (sm *ServiceManager) StopLibreTranslate() {
+func (sm *ServiceManager) StopLlamaServer() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if sm.ltProcess != nil {
-		_ = sm.ltProcess.Kill()
-		_, _ = sm.ltProcess.Wait()
-		sm.ltProcess = nil
+	if sm.llamaProcess != nil {
+		_ = sm.llamaProcess.Kill()
+		_, _ = sm.llamaProcess.Wait()
+		sm.llamaProcess = nil
 	}
+	sm.currentLlamaModelPath = ""
 }
 
 func (sm *ServiceManager) IsWhisperRunning() bool {
 	return isServiceHealthy(localServiceURL(sm.config.WhisperPort, "/health"))
 }
 
-func (sm *ServiceManager) IsLibreTranslateRunning() bool {
-	return isServiceHealthy(localServiceURL(sm.config.LibreTranslatePort, "/languages"))
+func (sm *ServiceManager) IsLlamaServerRunning() bool {
+	return isServiceHealthy(localServiceURL(sm.config.LlamaServerPort, "/health"))
 }
 
-func (sm *ServiceManager) LibreTranslatePort() int {
-	return sm.config.LibreTranslatePort
+func (sm *ServiceManager) LlamaServerPort() int {
+	return sm.config.LlamaServerPort
 }
 
 func isServiceHealthy(url string) bool {
@@ -242,6 +256,21 @@ func buildWhisperCommand(binaryPath, modelPath, vadModelPath string, port int, v
 			args = append(args, "--vad-max-speech-duration-s", fmt.Sprintf("%.1f", vadParams.MaxSpeechDurationS))
 		}
 		args = append(args, "--vad-speech-pad-ms", fmt.Sprintf("%d", vadParams.SpeechPadMs))
+	}
+	return exec.Command(binaryPath, args...)
+}
+
+func buildLlamaCommand(binaryPath, modelPath string, port int) *exec.Cmd {
+	gpuLayers := "999"
+	if detectGPU() == "none" {
+		gpuLayers = "0"
+	}
+	args := []string{
+		"-m", modelPath,
+		"--port", fmt.Sprintf("%d", port),
+		"--host", loopbackHost,
+		"--n-gpu-layers", gpuLayers,
+		"--ctx-size", "512",
 	}
 	return exec.Command(binaryPath, args...)
 }

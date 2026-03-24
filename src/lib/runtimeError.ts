@@ -1,7 +1,7 @@
 const WHISPER_SETUP_GUIDANCE =
   'whisper-server is not installed. Place "whisper-server.exe" at "services\\whisper-server\\whisper-server.exe" and a model such as "ggml-base.bin" at "services\\whisper-server\\models\\ggml-base.bin", or add "whisper-server" to PATH.';
-const LIBRETRANSLATE_SETUP_GUIDANCE =
-  'LibreTranslate is not installed. Install the "libretranslate" executable and add it to PATH, or start LibreTranslate manually before requesting translation languages.';
+const LLAMA_SERVER_SETUP_GUIDANCE =
+  'llama-server is required for translation. Download it from llama.cpp releases and place it at "services\\llama-server\\llama-server.exe", or add "llama-server" to PATH.';
 
 function isMissingWhisperServer(details: string): boolean {
   const normalized = details.toLowerCase();
@@ -13,11 +13,11 @@ function isMissingWhisperServer(details: string): boolean {
   );
 }
 
-function isMissingLibreTranslate(details: string): boolean {
+function isMissingLlamaServer(details: string): boolean {
   const normalized = details.toLowerCase();
 
   return (
-    normalized.includes("libretranslate") &&
+    normalized.includes("llama-server") &&
     (normalized.includes("not found in path") ||
       normalized.includes("executable file not found"))
   );
@@ -32,8 +32,8 @@ export function formatRuntimeError(message: string, details?: string): string {
     return `${message}: ${WHISPER_SETUP_GUIDANCE}`;
   }
 
-  if (isMissingLibreTranslate(details)) {
-    return `${message}: ${LIBRETRANSLATE_SETUP_GUIDANCE}`;
+  if (isMissingLlamaServer(details)) {
+    return `${message}: ${LLAMA_SERVER_SETUP_GUIDANCE}`;
   }
 
   return `${message}: ${details}`;

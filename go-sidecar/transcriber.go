@@ -2,13 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -63,6 +67,19 @@ func (t *Transcriber) Transcribe(videoPath string, sourceLang *string, beamSize 
 	// Send request
 	resp, err := t.client.Do(req)
 	if err != nil {
+		if isConnectionReset(err) {
+			if !t.IsHealthy() {
+				return nil, fmt.Errorf(
+					"whisper-server crashed during transcription (connection reset). "+
+						"This usually means the model ran out of memory. "+
+						"Try a smaller model size or shorter input file",
+				)
+			}
+			return nil, fmt.Errorf(
+				"whisper-server closed the connection unexpectedly. "+
+					"The file may be too large or in an unsupported format: %w", err,
+			)
+		}
 		return nil, fmt.Errorf("whisper-server request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -205,4 +222,36 @@ func newInferenceRequest(
 	}
 
 	return req, contentType, cleanup, nil
+}
+
+// isConnectionReset returns true when the error indicates the remote server
+// forcibly closed the TCP connection — on Windows this surfaces as WSAECONNRESET
+// (syscall.ECONNRESET / errno 10054), on Unix as ECONNRESET.
+func isConnectionReset(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for syscall-level ECONNRESET (works cross-platform).
+	var sysErr *os.SyscallError
+	if errors.As(err, &sysErr) {
+		if sysErr.Err == syscall.ECONNRESET {
+			return true
+		}
+	}
+
+	// Check for net.OpError wrapping a reset.
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if opErr.Err != nil {
+			if errors.As(opErr.Err, &sysErr) && sysErr.Err == syscall.ECONNRESET {
+				return true
+			}
+		}
+	}
+
+	// Fallback: match the Windows error message text.
+	msg := err.Error()
+	return strings.Contains(msg, "forcibly closed") ||
+		strings.Contains(msg, "connection reset by peer")
 }

@@ -6,10 +6,12 @@ import { OutputResult } from "./components/OutputResult";
 import { ProcessingView } from "./components/ProcessingView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { VideoDropzone } from "./components/VideoDropzone";
+import { VramIndicator } from "./components/VramIndicator";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useSidecar } from "./hooks/useSidecar";
+import { useVramPolling } from "./hooks/useVramPolling";
 import { buildLanguageOptions } from "./lib/languageOptions";
 import {
   advanceProcessingState,
@@ -39,7 +41,7 @@ interface CompletionState {
 
 interface SystemInfoState {
   whisperServer: boolean;
-  libretranslate: boolean;
+  translationEngine: boolean;
   gpu: string;
 }
 
@@ -72,6 +74,17 @@ function App() {
   const [translationWarning, setTranslationWarning] = useState("");
   const [isStopping, setIsStopping] = useState(false);
 
+  const hasNvidiaGpu =
+    systemInfo !== null &&
+    systemInfo.gpu !== "none" &&
+    systemInfo.gpu !== "unknown" &&
+    systemInfo.gpu !== "";
+
+  const { vram, handleVramResponse } = useVramPolling({
+    enabled: connected && hasNvidiaGpu,
+    sendCommand,
+  });
+
   useEffect(() => {
     connect().catch((err) => {
       setErrorMsg(`Failed to start backend: ${err}`);
@@ -101,10 +114,10 @@ function App() {
           setTranslationWarning("");
           setSystemInfo((prev) =>
             prev
-              ? { ...prev, libretranslate: true }
+              ? { ...prev, translationEngine: true }
               : {
                   whisperServer: false,
-                  libretranslate: true,
+                  translationEngine: true,
                   gpu: "unknown",
                 }
           );
@@ -112,12 +125,15 @@ function App() {
         case "system_info":
           setSystemInfo({
             whisperServer: response.whisper_server,
-            libretranslate: response.libretranslate,
+            translationEngine: response.translation_engine,
             gpu: response.gpu,
           });
-          if (response.libretranslate) {
+          if (response.translation_engine) {
             setTranslationWarning("");
           }
+          break;
+        case "vram_info":
+          handleVramResponse(response.vram);
           break;
         case "error": {
           const formattedError = formatRuntimeError(
@@ -232,10 +248,10 @@ function App() {
   }, [appState, connect, disconnect, isStopping]);
 
   const isProcessing = appState === "processing";
-  const translationStatus = systemInfo?.libretranslate
-    ? `LibreTranslate ready. ${languageOptions.target.length} translation targets available.`
+  const translationStatus = systemInfo?.translationEngine
+    ? `GemmaTranslate ready. ${languageOptions.target.length} translation targets available.`
     : translationWarning ||
-      "LibreTranslate will start automatically when translation is needed.";
+      "Translation engine will start automatically when needed.";
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -249,10 +265,17 @@ function App() {
             <div>
               <h1 className="text-sm font-medium tracking-wide">SUBGEN</h1>
               <p className="text-[10px] text-muted-foreground">
-                {systemInfo?.gpu && systemInfo.gpu !== "unknown"
+                {systemInfo?.gpu && systemInfo.gpu !== "unknown" && systemInfo.gpu !== "none"
                   ? systemInfo.gpu
                   : "Local subtitle generator"}
               </p>
+              {vram && (
+                <VramIndicator
+                  totalMiB={vram.total_mib}
+                  usedMiB={vram.used_mib}
+                  freeMiB={vram.free_mib}
+                />
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -261,7 +284,7 @@ function App() {
                 <Badge variant={systemInfo.whisperServer ? "default" : "outline"} className="text-[10px]">
                   Whisper
                 </Badge>
-                <Badge variant={systemInfo.libretranslate ? "default" : "outline"} className="text-[10px]">
+                <Badge variant={systemInfo.translationEngine ? "default" : "outline"} className="text-[10px]">
                   Translate
                 </Badge>
               </div>

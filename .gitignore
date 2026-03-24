@@ -20,7 +20,9 @@ src-tauri/subgen-sidecar-*.exe
 services/whisper-server/*.exe
 services/whisper-server/*.bin
 services/whisper-server/models/
-services/libretranslate/venv/
+services/llama-server/*.exe
+services/llama-server/*.bin
+services/llama-server/models/*.gguf
 
 # Python
 __pycache__/
