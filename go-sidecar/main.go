@@ -65,7 +65,7 @@ func main() {
 func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) {
 	switch cmd.Command {
 	case "generate":
-		go pipeline.Run(cmd)
+		pipeline.Run(cmd)
 
 	case "list_languages":
 		langs, err := listAvailableLanguages()

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestListLanguagesReturnsStaticPairs(t *testing.T) {
@@ -535,6 +536,48 @@ func TestTranslateBlocksFallbackFailureStopsPipeline(t *testing.T) {
 	}
 }
 
+func TestTranslateBlocksRequestFailureDoesNotFallback(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("llama unavailable"))
+			return
+		}
+
+		resp := chatCompletionResponse{
+			Choices: []struct {
+				Message chatMessage `json:"message"`
+			}{
+				{Message: chatMessage{Role: "assistant", Content: "unexpected fallback success"}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	translator := &Translator{baseURL: server.URL, client: server.Client(), maxWorkers: 1}
+	blocks := []ContextBlock{
+		{
+			Segments: []Segment{
+				{Start: 0.0, End: 1.0, Text: "テスト"},
+				{Start: 1.2, End: 2.0, Text: "です"},
+			},
+			Start: 0.0, End: 2.0,
+		},
+	}
+
+	_, err := translator.TranslateBlocks(blocks, "ja", "en", nil)
+	if err == nil {
+		t.Fatal("expected block request failure to abort instead of falling back")
+	}
+	if callCount != 1 {
+		t.Fatalf("expected exactly 1 request with no fallback, got %d", callCount)
+	}
+}
+
 func TestTranslateBlocksRollingHistory(t *testing.T) {
 	var requests []chatCompletionRequest
 	callIdx := 0
@@ -672,6 +715,14 @@ func TestTranslateSegmentsUsesStitching(t *testing.T) {
 	// Should have been one block → one LLM call (not 2)
 	if callCount != 1 {
 		t.Errorf("expected 1 LLM call (stitched block), got %d", callCount)
+	}
+}
+
+func TestNewTranslatorUsesLongerTimeoutForStitchedRequests(t *testing.T) {
+	translator := NewTranslator(8081)
+
+	if translator.client.Timeout < 5*time.Minute {
+		t.Fatalf("translator timeout = %s, want at least %s for stitched translation", translator.client.Timeout, 5*time.Minute)
 	}
 }
 
