@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -109,13 +110,55 @@ func TestResponseSerialization(t *testing.T) {
 	}
 }
 
+func TestVramInfoResponseSerialization(t *testing.T) {
+	resp := VramInfoResponse{
+		Type: "vram_info",
+		Vram: &VRAMInfo{TotalMiB: 8192, UsedMiB: 2048, FreeMiB: 6144},
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var decoded VramInfoResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if decoded.Type != "vram_info" {
+		t.Errorf("Type = %q, want vram_info", decoded.Type)
+	}
+	if decoded.Vram == nil {
+		t.Fatal("Vram is nil, want non-nil")
+	}
+	if decoded.Vram.TotalMiB != 8192 {
+		t.Errorf("TotalMiB = %d, want 8192", decoded.Vram.TotalMiB)
+	}
+	if decoded.Vram.UsedMiB != 2048 {
+		t.Errorf("UsedMiB = %d, want 2048", decoded.Vram.UsedMiB)
+	}
+	if decoded.Vram.FreeMiB != 6144 {
+		t.Errorf("FreeMiB = %d, want 6144", decoded.Vram.FreeMiB)
+	}
+}
+
+func TestVramInfoResponseNilVram(t *testing.T) {
+	resp := VramInfoResponse{Type: "vram_info", Vram: nil}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	if !strings.Contains(string(data), `"vram":null`) {
+		t.Errorf("expected null vram in JSON, got %s", data)
+	}
+}
+
 func TestDefaultServiceConfig(t *testing.T) {
 	config := DefaultServiceConfig()
 
 	if config.WhisperPort != 8080 {
 		t.Errorf("WhisperPort = %d, want 8080", config.WhisperPort)
 	}
-	if config.LibreTranslatePort != 5000 {
-		t.Errorf("LibreTranslatePort = %d, want 5000", config.LibreTranslatePort)
+	if config.LlamaServerPort != 8081 {
+		t.Errorf("LlamaServerPort = %d, want 8081", config.LlamaServerPort)
 	}
 }

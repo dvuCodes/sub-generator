@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,55 +20,136 @@ type Translator struct {
 func NewTranslator(port int) *Translator {
 	return &Translator{
 		baseURL:    localServiceBaseURL(port),
-		client:     &http.Client{Timeout: 30 * time.Second},
-		maxWorkers: 4, // Concurrent translation requests
+		client:     &http.Client{Timeout: 120 * time.Second},
+		maxWorkers: 1, // LLM inference is GPU-bound; no benefit from concurrency
 	}
 }
 
-type translateRequest struct {
-	Q      string `json:"q"`
-	Source string `json:"source"`
-	Target string `json:"target"`
+// --- OpenAI-compatible chat completion types ---
+
+type chatCompletionRequest struct {
+	Messages    []chatMessage `json:"messages"`
+	Temperature float64       `json:"temperature"`
+	MaxTokens   int           `json:"max_tokens"`
 }
 
-type translateResponse struct {
-	TranslatedText string `json:"translatedText"`
+type chatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
-type libreTranslateLanguage struct {
-	Code    string   `json:"code"`
-	Name    string   `json:"name"`
-	Targets []string `json:"targets"`
+type chatCompletionResponse struct {
+	Choices []struct {
+		Message chatMessage `json:"message"`
+	} `json:"choices"`
 }
 
-func supportsTranslationPair(pairs []LanguagePair, sourceLang, targetLang string) bool {
+// --- Supported languages (GemmaTranslate-v3) ---
+
+var gemmaLanguages = map[string]string{
+	"en": "English",
+	"ja": "Japanese",
+	"zh": "Chinese",
+	"ko": "Korean",
+	"es": "Spanish",
+	"fr": "French",
+	"de": "German",
+	"pt": "Portuguese",
+	"ru": "Russian",
+	"ar": "Arabic",
+	"hi": "Hindi",
+	"vi": "Vietnamese",
+	"th": "Thai",
+	"it": "Italian",
+	"nl": "Dutch",
+	"pl": "Polish",
+	"tr": "Turkish",
+	"sv": "Swedish",
+	"da": "Danish",
+	"fi": "Finnish",
+	"no": "Norwegian",
+	"cs": "Czech",
+	"el": "Greek",
+	"he": "Hebrew",
+	"hu": "Hungarian",
+	"id": "Indonesian",
+	"ms": "Malay",
+	"ro": "Romanian",
+	"sk": "Slovak",
+	"uk": "Ukrainian",
+	"bg": "Bulgarian",
+	"hr": "Croatian",
+	"lt": "Lithuanian",
+	"lv": "Latvian",
+	"et": "Estonian",
+	"sl": "Slovenian",
+	"sr": "Serbian",
+	"ca": "Catalan",
+	"gl": "Galician",
+	"eu": "Basque",
+	"mk": "Macedonian",
+	"sq": "Albanian",
+	"ka": "Georgian",
+	"hy": "Armenian",
+	"az": "Azerbaijani",
+	"kk": "Kazakh",
+	"uz": "Uzbek",
+	"tl": "Filipino",
+	"sw": "Swahili",
+	"ta": "Tamil",
+	"te": "Telugu",
+	"bn": "Bengali",
+	"ur": "Urdu",
+	"fa": "Persian",
+	"ne": "Nepali",
+	"si": "Sinhala",
+	"my": "Myanmar",
+}
+
+func supportsTranslationPair(sourceLang, targetLang string) bool {
 	if targetLang == "" {
 		return true
 	}
 
+	// For auto-detect, just check that the target language is supported
 	if sourceLang == "" || sourceLang == "auto" {
-		for _, pair := range pairs {
-			if pair.Target == targetLang {
-				return true
-			}
-		}
-		return false
+		_, ok := gemmaLanguages[targetLang]
+		return ok
 	}
 
-	for _, pair := range pairs {
-		if pair.Source == sourceLang && pair.Target == targetLang {
-			return true
-		}
+	_, srcOK := gemmaLanguages[sourceLang]
+	_, tgtOK := gemmaLanguages[targetLang]
+	return srcOK && tgtOK && sourceLang != targetLang
+}
+
+func buildTranslationPrompt(text, sourceLang, targetLang string) string {
+	sourceName := gemmaLanguages[sourceLang]
+	targetName := gemmaLanguages[targetLang]
+
+	if sourceName == "" {
+		sourceName = sourceLang
+	}
+	if targetName == "" {
+		targetName = targetLang
 	}
 
-	return false
+	return fmt.Sprintf(
+		"Translate the following text from %s to %s. Output only the translation, nothing else.\n\n%s",
+		sourceName,
+		targetName,
+		text,
+	)
 }
 
 func (t *Translator) Translate(text, sourceLang, targetLang string) (string, error) {
-	reqBody := translateRequest{
-		Q:      text,
-		Source: sourceLang,
-		Target: targetLang,
+	prompt := buildTranslationPrompt(text, sourceLang, targetLang)
+
+	reqBody := chatCompletionRequest{
+		Messages: []chatMessage{
+			{Role: "user", Content: prompt},
+		},
+		Temperature: 0.1,
+		MaxTokens:   512,
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -76,7 +158,7 @@ func (t *Translator) Translate(text, sourceLang, targetLang string) (string, err
 	}
 
 	resp, err := t.client.Post(
-		t.baseURL+"/translate",
+		t.baseURL+"/v1/chat/completions",
 		"application/json",
 		bytes.NewReader(bodyBytes),
 	)
@@ -90,19 +172,22 @@ func (t *Translator) Translate(text, sourceLang, targetLang string) (string, err
 		return "", fmt.Errorf("translation returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result translateResponse
+	var result chatCompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("failed to parse translation response: %w", err)
 	}
 
-	return result.TranslatedText, nil
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("translation returned no choices")
+	}
+
+	return strings.TrimSpace(result.Choices[0].Message.Content), nil
 }
 
 func (t *Translator) TranslateSegments(segments []Segment, sourceLang, targetLang string, onProgress func(current, total int)) ([]Segment, error) {
 	total := len(segments)
 	translated := make([]Segment, total)
 
-	// Use a semaphore pattern for concurrent translations
 	sem := make(chan struct{}, t.maxWorkers)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -113,10 +198,9 @@ func (t *Translator) TranslateSegments(segments []Segment, sourceLang, targetLan
 		wg.Add(1)
 		go func(idx int, s Segment) {
 			defer wg.Done()
-			sem <- struct{}{}        // acquire
-			defer func() { <-sem }() // release
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-			// Check for prior error
 			mu.Lock()
 			if firstErr != nil {
 				mu.Unlock()
@@ -157,58 +241,27 @@ func (t *Translator) TranslateSegments(segments []Segment, sourceLang, targetLan
 }
 
 func (t *Translator) ListLanguages() ([]LanguagePair, error) {
-	resp, err := t.client.Get(t.baseURL + "/languages")
-	if err != nil {
-		return nil, fmt.Errorf("failed to list languages: %w", err)
-	}
-	defer resp.Body.Close()
+	return StaticLanguagePairs(), nil
+}
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("list languages returned status %d: %s", resp.StatusCode, string(body))
+func StaticLanguagePairs() []LanguagePair {
+	codes := make([]string, 0, len(gemmaLanguages))
+	for code := range gemmaLanguages {
+		codes = append(codes, code)
 	}
 
-	var languages []libreTranslateLanguage
-	if err := json.NewDecoder(resp.Body).Decode(&languages); err != nil {
-		return nil, fmt.Errorf("failed to parse languages response: %w", err)
-	}
-
-	// Prefer the explicit target matrix from LibreTranslate when available.
-	var pairs []LanguagePair
-	hasDeclaredTargets := false
-	for _, src := range languages {
-		if len(src.Targets) > 0 {
-			hasDeclaredTargets = true
-		}
-		for _, tgt := range src.Targets {
-			if src.Code != tgt {
-				pairs = append(pairs, LanguagePair{
-					Source: src.Code,
-					Target: tgt,
-				})
+	pairs := make([]LanguagePair, 0, len(codes)*(len(codes)-1))
+	for _, src := range codes {
+		for _, tgt := range codes {
+			if src != tgt {
+				pairs = append(pairs, LanguagePair{Source: src, Target: tgt})
 			}
 		}
 	}
 
-	if hasDeclaredTargets {
-		return pairs, nil
-	}
-
-	// Older LibreTranslate responses may omit targets; fall back to a full matrix then.
-	for _, src := range languages {
-		for _, tgt := range languages {
-			if src.Code != tgt.Code {
-				pairs = append(pairs, LanguagePair{
-					Source: src.Code,
-					Target: tgt.Code,
-				})
-			}
-		}
-	}
-
-	return pairs, nil
+	return pairs
 }
 
 func (t *Translator) IsHealthy() bool {
-	return isServiceHealthy(t.baseURL + "/languages")
+	return isServiceHealthy(t.baseURL + "/health")
 }

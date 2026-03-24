@@ -19,15 +19,14 @@ describe("formatRuntimeError", () => {
       .toBe("Validation failed: unsupported video format");
   });
 
-  it("turns a libretranslate PATH failure into setup guidance", () => {
+  it("turns a llama-server PATH failure into setup guidance", () => {
     const error = formatRuntimeError(
-      "Failed to list languages",
-      'libretranslate executable "libretranslate" not found in PATH'
+      "Translation engine startup failed",
+      'llama-server executable "llama-server" not found in PATH'
     );
 
-    expect(error).toContain("Failed to list languages:");
-    expect(error).toContain("LibreTranslate is not installed");
-    expect(error).toContain('"libretranslate" executable');
-    expect(error).toContain("PATH");
+    expect(error).toContain("Translation engine startup failed:");
+    expect(error).toContain("llama-server is required for translation");
+    expect(error).toContain("services\\llama-server\\llama-server.exe");
   });
 });
