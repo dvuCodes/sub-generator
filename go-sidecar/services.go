@@ -54,13 +54,16 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string, vadParams *VADPar
 	currentParams := sm.currentVADParams
 	sm.mu.Unlock()
 
+	healthy := sm.IsWhisperRunning()
+	if err := rejectUnmanagedHealthyService("whisper-server", sm.config.WhisperPort, currentProcess, healthy); err != nil {
+		return err
+	}
+
 	if currentProcess != nil {
-		if currentModel == whisperModel && currentVAD == vadModel && vadParamsEqual(currentParams, vadParams) && sm.IsWhisperRunning() {
+		if currentModel == whisperModel && currentVAD == vadModel && vadParamsEqual(currentParams, vadParams) && healthy {
 			return nil
 		}
 		sm.StopWhisperServer()
-	} else if sm.IsWhisperRunning() {
-		return nil
 	}
 
 	if err := validateWhisperStartup(sm.config.SearchRoots, whisperBinary, whisperModel); err != nil {
@@ -134,7 +137,12 @@ func (sm *ServiceManager) StartLlamaServer() error {
 	currentModel := sm.currentLlamaModelPath
 	sm.mu.Unlock()
 
-	if shouldReuseManagedLlamaProcess(currentProcess, currentModel, gemmaModel, sm.IsLlamaServerRunning()) {
+	healthy := sm.IsLlamaServerRunning()
+	if err := rejectUnmanagedHealthyService("llama-server", sm.config.LlamaServerPort, currentProcess, healthy); err != nil {
+		return err
+	}
+
+	if shouldReuseManagedLlamaProcess(currentProcess, currentModel, gemmaModel, healthy) {
 		return nil
 	}
 	if currentProcess != nil {
@@ -291,6 +299,19 @@ func vadParamsEqual(a, b *VADParams) bool {
 
 func shouldReuseManagedLlamaProcess(currentProcess *os.Process, currentModel string, expectedModel string, healthy bool) bool {
 	return currentProcess != nil && currentModel == expectedModel && healthy
+}
+
+func rejectUnmanagedHealthyService(serviceName string, port int, currentProcess *os.Process, healthy bool) error {
+	if currentProcess != nil || !healthy {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%s is already responding on port %d but is not managed by SubGen. Startup was aborted to avoid reusing stale settings; stop the existing %s process and retry",
+		serviceName,
+		port,
+		serviceName,
+	)
 }
 
 func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) error {
