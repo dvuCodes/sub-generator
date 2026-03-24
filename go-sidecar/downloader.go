@@ -21,6 +21,13 @@ func ModelDownloadURL(modelSize string) string {
 	return base + modelFilename(modelSize)
 }
 
+// VADModelDownloadURL returns the Hugging Face download URL for the Silero VAD model.
+func VADModelDownloadURL() string {
+	return "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin"
+}
+
+const vadModelFilename = "ggml-silero-v5.1.2.bin"
+
 // formatBytes converts a byte count into a human-readable string.
 // Examples: 0 -> "0 B", 1024 -> "1.0 KB", 1536 -> "1.5 KB", etc.
 func formatBytes(bytes int64) string {

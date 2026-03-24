@@ -189,6 +189,91 @@ func TestIsCJKLanguage(t *testing.T) {
 	}
 }
 
+func TestDeriveTranscriptionLogPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"mp4", "C:/Videos/movie.mp4", "C:/Videos/movie.transcription.txt"},
+		{"mkv", "/home/user/anime.mkv", "/home/user/anime.transcription.txt"},
+		{"no directory", "video.webm", "video.transcription.txt"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DeriveTranscriptionLogPath(tt.input)
+			if got != tt.want {
+				t.Errorf("DeriveTranscriptionLogPath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWriteTranscriptionLog(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test.transcription.txt")
+
+	segments := []Segment{
+		{Start: 0.0, End: 2.5, Text: "Hello world"},
+		{Start: 63.5, End: 65.0, Text: "Second segment"},
+	}
+
+	err := WriteTranscriptionLog(segments, outPath, "en")
+	if err != nil {
+		t.Fatalf("WriteTranscriptionLog() error: %v", err)
+	}
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+
+	text := string(content)
+
+	if !strings.Contains(text, "# Transcription (detected language: en)") {
+		t.Error("Missing header line")
+	}
+	if !strings.Contains(text, "[00:00:00.000 --> 00:00:02.500] Hello world") {
+		t.Errorf("Missing or malformed first segment, got:\n%s", text)
+	}
+	if !strings.Contains(text, "[00:01:03.500 --> 00:01:05.000] Second segment") {
+		t.Errorf("Missing or malformed second segment, got:\n%s", text)
+	}
+}
+
+func TestWriteTranscriptionLogCJK(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test.transcription.txt")
+
+	segments := []Segment{
+		{Start: 0.0, End: 2.0, Text: "こんにちは世界"},
+		{Start: 3.0, End: 5.0, Text: "テスト字幕"},
+	}
+
+	err := WriteTranscriptionLog(segments, outPath, "ja")
+	if err != nil {
+		t.Fatalf("WriteTranscriptionLog() error: %v", err)
+	}
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+
+	text := string(content)
+
+	if !strings.Contains(text, "detected language: ja") {
+		t.Error("Missing Japanese language in header")
+	}
+	if !strings.Contains(text, "こんにちは世界") {
+		t.Error("Missing Japanese text: こんにちは世界")
+	}
+	if !strings.Contains(text, "テスト字幕") {
+		t.Error("Missing Japanese text: テスト字幕")
+	}
+}
+
 func strPtr(s string) *string {
 	return &s
 }

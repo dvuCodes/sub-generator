@@ -10,6 +10,7 @@ import {
 
 interface OutputResultProps {
   outputPath: string;
+  transcriptionLog?: string;
   segments: number;
   durationSecs: number;
   onReset: () => void;
@@ -17,6 +18,7 @@ interface OutputResultProps {
 
 export function OutputResult({
   outputPath,
+  transcriptionLog,
   segments,
   durationSecs,
   onReset,
@@ -85,6 +87,14 @@ export function OutputResult({
               {dir}
             </span>
           </div>
+          {transcriptionLog && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Transcription Log</span>
+              <span className="max-w-[220px] truncate font-mono text-foreground">
+                {transcriptionLog.split(/[/\\]/).pop()}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2">

@@ -8,11 +8,29 @@ import (
 )
 
 func TestBuildWhisperCommandIncludesConvertFlag(t *testing.T) {
-	cmd := buildWhisperCommand("whisper-server", "model.bin", 8080)
+	cmd := buildWhisperCommand("whisper-server", "model.bin", "", 8080)
 
 	got := strings.Join(cmd.Args, " ")
 	if !strings.Contains(got, "--convert") {
 		t.Fatalf("buildWhisperCommand() args = %q, want --convert", got)
+	}
+}
+
+func TestBuildWhisperCommandIncludesVADModel(t *testing.T) {
+	cmd := buildWhisperCommand("whisper-server", "model.bin", "vad.bin", 8080)
+
+	got := strings.Join(cmd.Args, " ")
+	if !strings.Contains(got, "--vad-model vad.bin") {
+		t.Fatalf("buildWhisperCommand() args = %q, want --vad-model", got)
+	}
+}
+
+func TestBuildWhisperCommandOmitsVADModelWhenEmpty(t *testing.T) {
+	cmd := buildWhisperCommand("whisper-server", "model.bin", "", 8080)
+
+	got := strings.Join(cmd.Args, " ")
+	if strings.Contains(got, "--vad-model") {
+		t.Fatalf("buildWhisperCommand() args = %q, should not contain --vad-model when empty", got)
 	}
 }
 

@@ -65,7 +65,8 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 		return err
 	}
 
-	cmd := buildWhisperCommand(whisperBinary, whisperModel, sm.config.WhisperPort)
+	vadModel := resolveVADModelPath(sm.config.SearchRoots)
+	cmd := buildWhisperCommand(whisperBinary, whisperModel, vadModel, sm.config.WhisperPort)
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
@@ -209,14 +210,17 @@ func runCommand(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func buildWhisperCommand(binaryPath, modelPath string, port int) *exec.Cmd {
-	return exec.Command(
-		binaryPath,
+func buildWhisperCommand(binaryPath, modelPath, vadModelPath string, port int) *exec.Cmd {
+	args := []string{
 		"-m", modelPath,
 		"--port", fmt.Sprintf("%d", port),
 		"--convert",
 		"--no-flash-attn",
-	)
+	}
+	if vadModelPath != "" {
+		args = append(args, "--vad-model", vadModelPath)
+	}
+	return exec.Command(binaryPath, args...)
 }
 
 func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) error {

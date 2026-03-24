@@ -8,7 +8,26 @@
       "Bash(git stash:*)",
       "Bash(go test:*)",
       "Bash(bun test:*)",
-      "Bash(grep -r \"shadcn\\\\|@radix\\\\|headless\" /c/Users/datvu/Documents/code/sub-generator/package.json /c/Users/datvu/Documents/code/sub-generator/src --include=*.tsx --include=*.ts --include=*.json)"
+      "Bash(grep -r \"shadcn\\\\|@radix\\\\|headless\" /c/Users/datvu/Documents/code/sub-generator/package.json /c/Users/datvu/Documents/code/sub-generator/src --include=*.tsx --include=*.ts --include=*.json)",
+      "Bash(node -e \":*)",
+      "Bash(node --input-type=module -e \":*)",
+      "Bash(npx tsc:*)",
+      "Bash(bun run:*)",
+      "Bash(bunx vite:*)",
+      "Bash(bunx tsc:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(ffmpeg -f lavfi -i \"sine=frequency=440:duration=3\" -ar 16000 -ac 1 -c:a pcm_s16le /tmp/test_whisper.wav -y)",
+      "Bash(curl:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''Task:'''', d.get\\(''''task''''\\)\\); print\\(''''Language:'''', d.get\\(''''language''''\\)\\); print\\(''''Duration:'''', d.get\\(''''duration''''\\)\\); print\\(''''Text:'''', d.get\\(''''text'''',''''''''\\)[:100]\\); print\\(''''Segments:'''', len\\(d.get\\(''''segments'''',[]\\)\\)\\)\")",
+      "Bash(\"C:/Users/datvu/Documents/code/sub-generator/services/whisper-server/whisper-server.exe\" --help)",
+      "Bash(go build:*)",
+      "Bash(gh search:*)",
+      "Skill(claude-api)",
+      "mcp__claude_ai_Context7__resolve-library-id",
+      "mcp__claude_ai_Context7__query-docs",
+      "Bash(bash \"C:/Users/datvu/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/brainstorming/scripts/start-server.sh\" --project-dir \"C:/Users/datvu/Documents/code/sub-generator\")"
     ]
   }
 }
