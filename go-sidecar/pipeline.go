@@ -103,6 +103,57 @@ func (p *Pipeline) Run(cmd Command) {
 
 	// Step 4: Transcribe
 	sendStage("transcribing", "Transcribing speech...")
+
+	mediaDuration, probeErr := MediaDuration(cmd.InputVideo)
+	if probeErr != nil {
+		fmt.Fprintf(os.Stderr, "ffprobe duration probe failed (ETA unavailable): %v\n", probeErr)
+	}
+
+	hasGPU := detectGPU() != "none"
+	estimatedSecs := EstimateTranscriptionSeconds(mediaDuration, cmd.ModelSize, hasGPU)
+
+	done := make(chan struct{})
+	transcribeStart := time.Now()
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				elapsed := time.Since(transcribeStart).Seconds()
+
+				var percent float64
+				var etaSecs float64
+				var msg string
+
+				if estimatedSecs > 0 {
+					percent = (elapsed / estimatedSecs) * 100
+					if percent > 99 {
+						percent = 99
+					}
+					etaSecs = estimatedSecs - elapsed
+					if etaSecs < 0 {
+						etaSecs = 0
+					}
+
+					if elapsed > estimatedSecs*1.2 {
+						msg = fmt.Sprintf("Transcribing... %s elapsed (taking longer than expected)", formatDuration(elapsed))
+					} else {
+						msg = fmt.Sprintf("Transcribing... %s elapsed / ~%s remaining", formatDuration(elapsed), formatDuration(etaSecs))
+					}
+				} else {
+					msg = fmt.Sprintf("Transcribing... %s elapsed", formatDuration(elapsed))
+				}
+
+				sendTimerProgress("transcribing", percent, msg, elapsed, etaSecs)
+			}
+		}
+	}()
+
 	transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
 	result, err := transcriber.Transcribe(
 		cmd.InputVideo,
@@ -110,6 +161,8 @@ func (p *Pipeline) Run(cmd Command) {
 		cmd.BeamSize,
 		cmd.VADFilter,
 	)
+	close(done)
+
 	if err != nil {
 		sendError("Transcription failed", err.Error())
 		return
