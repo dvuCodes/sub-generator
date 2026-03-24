@@ -26,10 +26,12 @@ type Command struct {
 // --- IPC Response Types (sent to Tauri via stdout) ---
 
 type ProgressResponse struct {
-	Type    string  `json:"type"`
-	Stage   string  `json:"stage"`
-	Percent float64 `json:"percent"`
-	Message string  `json:"message"`
+	Type        string   `json:"type"`
+	Stage       string   `json:"stage"`
+	Percent     float64  `json:"percent"`
+	Message     string   `json:"message"`
+	ElapsedSecs *float64 `json:"elapsed_secs,omitempty"`
+	ETASecs     *float64 `json:"eta_secs,omitempty"`
 }
 
 type StageResponse struct {
