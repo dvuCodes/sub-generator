@@ -292,6 +292,61 @@ func TestNewTranscriberUsesDedicatedTransportWithoutKeepAlives(t *testing.T) {
 	}
 }
 
+func TestNewInferenceRequestCapsBeamSizeAt8(t *testing.T) {
+	videoPath := writeTempVideoFile(t)
+
+	req, _, cleanup, err := newInferenceRequest(
+		"http://localhost:8080/inference",
+		videoPath,
+		nil,
+		12, // exceeds max of 8
+		false,
+	)
+	if err != nil {
+		t.Fatalf("newInferenceRequest() error = %v", err)
+	}
+	defer cleanup()
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	body := string(bodyBytes)
+
+	if !strings.Contains(body, "\r\n8\r\n") {
+		t.Fatalf("beam_size should be capped to 8, got body: %s", body)
+	}
+	if strings.Contains(body, "\r\n12\r\n") {
+		t.Fatal("beam_size 12 should have been capped to 8")
+	}
+}
+
+func TestNewInferenceRequestBeamSizeAtBoundary(t *testing.T) {
+	videoPath := writeTempVideoFile(t)
+
+	req, _, cleanup, err := newInferenceRequest(
+		"http://localhost:8080/inference",
+		videoPath,
+		nil,
+		8, // exactly at max
+		false,
+	)
+	if err != nil {
+		t.Fatalf("newInferenceRequest() error = %v", err)
+	}
+	defer cleanup()
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	body := string(bodyBytes)
+
+	if !strings.Contains(body, "\r\n8\r\n") {
+		t.Fatalf("beam_size 8 should pass through unchanged, got body: %s", body)
+	}
+}
+
 func writeTempVideoFile(t *testing.T) string {
 	t.Helper()
 

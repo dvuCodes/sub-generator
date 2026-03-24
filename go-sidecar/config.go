@@ -39,10 +39,11 @@ type StageResponse struct {
 }
 
 type CompleteResponse struct {
-	Type         string  `json:"type"`
-	OutputPath   string  `json:"output_path"`
-	Segments     int     `json:"segments"`
-	DurationSecs float64 `json:"duration_secs"`
+	Type             string  `json:"type"`
+	OutputPath       string  `json:"output_path"`
+	TranscriptionLog string  `json:"transcription_log,omitempty"`
+	Segments         int     `json:"segments"`
+	DurationSecs     float64 `json:"duration_secs"`
 }
 
 type ErrorResponse struct {
@@ -221,6 +222,18 @@ func normalizeSearchRoots(roots []string) []string {
 	}
 
 	return normalized
+}
+
+func resolveVADModelPath(searchRoots []string) string {
+	roots := normalizeSearchRoots(searchRoots)
+	candidates := make([]string, 0, len(roots)*2)
+	for _, root := range roots {
+		candidates = append(candidates,
+			filepath.Join(root, "services", "whisper-server", "models", vadModelFilename),
+			filepath.Join(root, "models", vadModelFilename),
+		)
+	}
+	return firstExistingPath(candidates...)
 }
 
 func firstExistingPath(paths ...string) string {

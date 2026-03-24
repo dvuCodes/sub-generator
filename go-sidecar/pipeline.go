@@ -42,7 +42,11 @@ func (p *Pipeline) Run(cmd Command) {
 	installDir := preferredWhisperInstallDir(p.svcManager.config.SearchRoots)
 	modelPath := filepath.Join(installDir, "models", modelFile)
 
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+	if _, err := os.Stat(modelPath); err != nil {
+		if !os.IsNotExist(err) {
+			sendError("Model check failed", fmt.Sprintf("cannot access model at %q: %v", modelPath, err))
+			return
+		}
 		sendStage("downloading_model", fmt.Sprintf("Downloading %s model...", cmd.ModelSize))
 		url := ModelDownloadURL(cmd.ModelSize)
 		if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
@@ -61,6 +65,33 @@ func (p *Pipeline) Run(cmd Command) {
 			return
 		}
 		sendProgress("downloading_model", 100, "Model downloaded")
+	}
+
+	// Step 2b: Download VAD model if needed
+	if cmd.VADFilter {
+		vadModelPath := filepath.Join(installDir, "models", vadModelFilename)
+		if _, err := os.Stat(vadModelPath); err != nil && !os.IsNotExist(err) {
+			sendError("VAD model check failed", fmt.Sprintf("cannot access VAD model at %q: %v", vadModelPath, err))
+			return
+		} else if os.IsNotExist(err) {
+			sendStage("downloading_model", "Downloading VAD model...")
+			if err := os.MkdirAll(filepath.Dir(vadModelPath), 0o755); err != nil {
+				sendError("VAD model download failed", err.Error())
+				return
+			}
+			if err := DownloadModel(VADModelDownloadURL(), vadModelPath, func(downloaded, total int64) {
+				if total > 0 {
+					pct := float64(downloaded) / float64(total) * 100
+					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading VAD model %s / %s", formatBytes(downloaded), formatBytes(total)))
+				} else {
+					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading VAD model %s...", formatBytes(downloaded)))
+				}
+			}); err != nil {
+				sendError("VAD model download failed", err.Error())
+				return
+			}
+			sendProgress("downloading_model", 100, "VAD model downloaded")
+		}
 	}
 
 	// Step 3: Ensure services are running
@@ -93,6 +124,21 @@ func (p *Pipeline) Run(cmd Command) {
 
 	segments := result.Segments
 
+	// Step 4b: Write diagnostic transcription log (before translation overwrites segments)
+	var transcriptionLogPath string
+	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
+		logPath := DeriveTranscriptionLogPath(cmd.InputVideo)
+		sourceLang := result.Language
+		if cmd.SourceLang != nil && *cmd.SourceLang != "" {
+			sourceLang = *cmd.SourceLang
+		}
+		if err := WriteTranscriptionLog(result.Segments, logPath, sourceLang); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write transcription log to %q: %v\n", logPath, err)
+		} else {
+			transcriptionLogPath = logPath
+		}
+	}
+
 	// Step 5: Translate (if target language specified)
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
 		sendStage("translating", fmt.Sprintf("Translating to %s...", *cmd.TargetLang))
@@ -107,18 +153,19 @@ func (p *Pipeline) Run(cmd Command) {
 			sourceLang = result.Language
 		}
 
-		if pairs, err := translator.ListLanguages(); err == nil {
-			if !supportsTranslationPair(pairs, sourceLang, *cmd.TargetLang) {
-				sendError(
-					"Translation failed",
-					fmt.Sprintf(
-						"translation pair %s -> %s is not available according to LibreTranslate",
-						sourceLang,
-						*cmd.TargetLang,
-					),
-				)
-				return
-			}
+		pairs, err := translator.ListLanguages()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not verify translation pair availability: %v\n", err)
+		} else if !supportsTranslationPair(pairs, sourceLang, *cmd.TargetLang) {
+			sendError(
+				"Translation failed",
+				fmt.Sprintf(
+					"translation pair %s -> %s is not available according to LibreTranslate",
+					sourceLang,
+					*cmd.TargetLang,
+				),
+			)
+			return
 		}
 
 		translated, err := translator.TranslateSegments(
@@ -162,10 +209,11 @@ func (p *Pipeline) Run(cmd Command) {
 	// Done
 	duration := time.Since(startTime).Seconds()
 	sendJSON(CompleteResponse{
-		Type:         "complete",
-		OutputPath:   outputPath,
-		Segments:     len(segments),
-		DurationSecs: duration,
+		Type:             "complete",
+		OutputPath:       outputPath,
+		TranscriptionLog: transcriptionLogPath,
+		Segments:         len(segments),
+		DurationSecs:     duration,
 	})
 }
 

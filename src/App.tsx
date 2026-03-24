@@ -31,6 +31,7 @@ type AppState = "idle" | "processing" | "complete" | "error";
 
 interface CompletionState {
   outputPath: string;
+  transcriptionLog?: string;
   segments: number;
   durationSecs: number;
 }
@@ -82,6 +83,7 @@ function App() {
         case "complete":
           setCompletion({
             outputPath: response.output_path,
+            transcriptionLog: response.transcription_log,
             segments: response.segments,
             durationSecs: response.duration_secs,
           });
@@ -278,6 +280,7 @@ function App() {
         {appState === "complete" && completion ? (
           <OutputResult
             outputPath={completion.outputPath}
+            transcriptionLog={completion.transcriptionLog}
             segments={completion.segments}
             durationSecs={completion.durationSecs}
             onReset={handleReset}

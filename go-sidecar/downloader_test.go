@@ -197,6 +197,115 @@ func TestDownloadModelFailureLeavesPartFile(t *testing.T) {
 	}
 }
 
+// TestVADModelDownloadURL verifies the VAD model URL is correct.
+func TestVADModelDownloadURL(t *testing.T) {
+	got := VADModelDownloadURL()
+	want := "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin"
+	if got != want {
+		t.Errorf("VADModelDownloadURL() = %q, want %q", got, want)
+	}
+}
+
+// TestDownloadModelRetries429 verifies that a 429 on first attempt retries and succeeds.
+func TestDownloadModelRetries429(t *testing.T) {
+	content := "retry content"
+	attempt := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt++
+		if attempt == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+		fmt.Fprint(w, content)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	destPath := filepath.Join(dir, "model.bin")
+
+	oldClient := httpClient
+	httpClient = server.Client()
+	defer func() { httpClient = oldClient }()
+
+	err := DownloadModel(server.URL, destPath, nil)
+	if err != nil {
+		t.Fatalf("DownloadModel returned error: %v", err)
+	}
+
+	got, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != content {
+		t.Errorf("file content = %q, want %q", string(got), content)
+	}
+	if attempt != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempt)
+	}
+}
+
+// TestDownloadModelRetries5xx verifies that a 503 on first attempt retries and succeeds.
+func TestDownloadModelRetries5xx(t *testing.T) {
+	content := "retry 5xx content"
+	attempt := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt++
+		if attempt == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+		fmt.Fprint(w, content)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	destPath := filepath.Join(dir, "model.bin")
+
+	oldClient := httpClient
+	httpClient = server.Client()
+	defer func() { httpClient = oldClient }()
+
+	err := DownloadModel(server.URL, destPath, nil)
+	if err != nil {
+		t.Fatalf("DownloadModel returned error: %v", err)
+	}
+
+	got, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != content {
+		t.Errorf("file content = %q, want %q", string(got), content)
+	}
+}
+
+// TestDownloadModelDoesNotRetry404 verifies that a 404 fails immediately without retry.
+func TestDownloadModelDoesNotRetry404(t *testing.T) {
+	attempt := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	destPath := filepath.Join(dir, "model.bin")
+
+	oldClient := httpClient
+	httpClient = server.Client()
+	defer func() { httpClient = oldClient }()
+
+	err := DownloadModel(server.URL, destPath, nil)
+	if err == nil {
+		t.Fatal("expected error for 404, got nil")
+	}
+	if attempt != 1 {
+		t.Errorf("404 should not be retried, expected 1 attempt, got %d", attempt)
+	}
+}
+
 // TestDownloadModelRejectsNonHTTPS verifies that http:// URLs are rejected.
 func TestDownloadModelRejectsNonHTTPS(t *testing.T) {
 	dir := t.TempDir()

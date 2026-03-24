@@ -61,6 +61,7 @@ export interface StageResponse {
 export interface CompleteResponse {
   type: "complete";
   output_path: string;
+  transcription_log?: string;
   segments: number;
   duration_secs: number;
 }
