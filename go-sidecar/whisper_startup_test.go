@@ -8,11 +8,71 @@ import (
 )
 
 func TestBuildWhisperCommandIncludesConvertFlag(t *testing.T) {
-	cmd := buildWhisperCommand("whisper-server", "model.bin", 8080)
+	cmd := buildWhisperCommand("whisper-server", "model.bin", "", 8080)
 
 	got := strings.Join(cmd.Args, " ")
 	if !strings.Contains(got, "--convert") {
 		t.Fatalf("buildWhisperCommand() args = %q, want --convert", got)
+	}
+}
+
+func TestBuildWhisperCommandIncludesVADModel(t *testing.T) {
+	cmd := buildWhisperCommand("whisper-server", "model.bin", "vad.bin", 8080)
+
+	got := strings.Join(cmd.Args, " ")
+	if !strings.Contains(got, "--vad-model vad.bin") {
+		t.Fatalf("buildWhisperCommand() args = %q, want --vad-model", got)
+	}
+}
+
+func TestBuildWhisperCommandOmitsVADModelWhenEmpty(t *testing.T) {
+	cmd := buildWhisperCommand("whisper-server", "model.bin", "", 8080)
+
+	got := strings.Join(cmd.Args, " ")
+	if strings.Contains(got, "--vad-model") {
+		t.Fatalf("buildWhisperCommand() args = %q, should not contain --vad-model when empty", got)
+	}
+}
+
+func TestResolveVADModelPathFindsInServicesDir(t *testing.T) {
+	root := t.TempDir()
+	vadDir := filepath.Join(root, "services", "whisper-server", "models")
+	if err := os.MkdirAll(vadDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	vadPath := filepath.Join(vadDir, vadModelFilename)
+	if err := os.WriteFile(vadPath, []byte("vad"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	got := resolveVADModelPath([]string{root})
+	if got != vadPath {
+		t.Errorf("resolveVADModelPath() = %q, want %q", got, vadPath)
+	}
+}
+
+func TestResolveVADModelPathFindsInModelsDir(t *testing.T) {
+	root := t.TempDir()
+	modelsDir := filepath.Join(root, "models")
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	vadPath := filepath.Join(modelsDir, vadModelFilename)
+	if err := os.WriteFile(vadPath, []byte("vad"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	got := resolveVADModelPath([]string{root})
+	if got != vadPath {
+		t.Errorf("resolveVADModelPath() = %q, want %q", got, vadPath)
+	}
+}
+
+func TestResolveVADModelPathReturnsEmptyWhenNotFound(t *testing.T) {
+	root := t.TempDir()
+	got := resolveVADModelPath([]string{root})
+	if got != "" {
+		t.Errorf("resolveVADModelPath() = %q, want empty string", got)
 	}
 }
 

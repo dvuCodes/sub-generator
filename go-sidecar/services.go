@@ -17,6 +17,7 @@ type ServiceManager struct {
 	config                  ServiceConfig
 	whisperProcess          *os.Process
 	currentWhisperModelPath string
+	currentVADModelPath     string
 	ltProcess               *os.Process
 	mu                      sync.Mutex
 }
@@ -42,14 +43,16 @@ func (sm *ServiceManager) StopAll() {
 
 func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 	whisperBinary, whisperModel := resolveWhisperAssets(sm.config.SearchRoots, modelSize)
+	vadModel := resolveVADModelPath(sm.config.SearchRoots)
 
 	sm.mu.Lock()
 	currentProcess := sm.whisperProcess
 	currentModel := sm.currentWhisperModelPath
+	currentVAD := sm.currentVADModelPath
 	sm.mu.Unlock()
 
 	if currentProcess != nil {
-		if currentModel == whisperModel && sm.IsWhisperRunning() {
+		if currentModel == whisperModel && currentVAD == vadModel && sm.IsWhisperRunning() {
 			return nil
 		}
 		sm.StopWhisperServer()
@@ -65,7 +68,11 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 		return err
 	}
 
-	cmd := buildWhisperCommand(whisperBinary, whisperModel, sm.config.WhisperPort)
+	if vadModel == "" {
+		fmt.Fprintf(os.Stderr, "warning: VAD model not found in search roots; whisper-server will start without VAD support\n")
+	}
+
+	cmd := buildWhisperCommand(whisperBinary, whisperModel, vadModel, sm.config.WhisperPort)
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
@@ -80,6 +87,7 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 	sm.mu.Lock()
 	sm.whisperProcess = cmd.Process
 	sm.currentWhisperModelPath = whisperModel
+	sm.currentVADModelPath = vadModel
 	sm.config.WhisperServerPath = whisperBinary
 	sm.config.WhisperModelPath = whisperModel
 	sm.mu.Unlock()
@@ -101,11 +109,14 @@ func (sm *ServiceManager) StopWhisperServer() {
 
 func (sm *ServiceManager) stopWhisperServerLocked() {
 	if sm.whisperProcess != nil {
-		_ = sm.whisperProcess.Kill()
+		if err := sm.whisperProcess.Kill(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to kill whisper-server process: %v\n", err)
+		}
 		_, _ = sm.whisperProcess.Wait()
 		sm.whisperProcess = nil
 	}
 	sm.currentWhisperModelPath = ""
+	sm.currentVADModelPath = ""
 }
 
 func (sm *ServiceManager) StartLibreTranslate() error {
@@ -209,14 +220,17 @@ func runCommand(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func buildWhisperCommand(binaryPath, modelPath string, port int) *exec.Cmd {
-	return exec.Command(
-		binaryPath,
+func buildWhisperCommand(binaryPath, modelPath, vadModelPath string, port int) *exec.Cmd {
+	args := []string{
 		"-m", modelPath,
 		"--port", fmt.Sprintf("%d", port),
 		"--convert",
 		"--no-flash-attn",
-	)
+	}
+	if vadModelPath != "" {
+		args = append(args, "--vad-model", vadModelPath)
+	}
+	return exec.Command(binaryPath, args...)
 }
 
 func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) error {

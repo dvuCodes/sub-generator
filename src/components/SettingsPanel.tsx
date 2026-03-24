@@ -52,7 +52,7 @@ export function SettingsPanel({
             </div>
             <Slider
               min={1}
-              max={10}
+              max={8}
               step={1}
               value={[beamSize]}
               onValueChange={([val]) => onBeamSizeChange(val)}

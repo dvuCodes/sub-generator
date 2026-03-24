@@ -126,6 +126,11 @@ func newInferenceRequest(
 	beamSize int,
 	vadFilter bool,
 ) (*http.Request, string, func(), error) {
+	if beamSize > 8 {
+		fmt.Fprintf(os.Stderr, "warning: beam_size %d exceeds whisper-server maximum of 8, capping to 8\n", beamSize)
+		beamSize = 8
+	}
+
 	videoFile, err := os.Open(videoPath)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("failed to open video file: %w", err)
