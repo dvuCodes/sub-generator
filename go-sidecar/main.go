@@ -21,6 +21,8 @@ type translationService interface {
 }
 
 func main() {
+	initJobObject()
+
 	svcConfig := DefaultServiceConfig()
 	svcManager := NewServiceManager(svcConfig)
 	pipeline := NewPipeline(svcManager)

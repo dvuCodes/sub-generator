@@ -83,6 +83,9 @@ function App() {
   const handleVramResponseRef = useRef(handleVramResponse);
   handleVramResponseRef.current = handleVramResponse;
 
+  const sendCommandRef = useRef(sendCommand);
+  sendCommandRef.current = sendCommand;
+
   useEffect(() => {
     connect().catch((err) => {
       setErrorMsg(`Failed to start backend: ${err}`);
@@ -107,6 +110,9 @@ function App() {
             durationSecs: response.duration_secs,
           });
           setAppState("complete");
+          sendCommandRef.current({ command: "stop_services" }).catch((err) => {
+            console.error("Failed to stop services:", err);
+          });
           break;
         case "languages":
           setTranslationWarning("");
@@ -133,6 +139,9 @@ function App() {
 
           setErrorMsg(formattedError);
           setAppState("error");
+          sendCommandRef.current({ command: "stop_services" }).catch((err) => {
+            console.error("Failed to stop services:", err);
+          });
           break;
         }
       }
@@ -305,12 +314,22 @@ function App() {
             durationSecs={completion.durationSecs}
             onReset={handleReset}
           />
+        ) : isProcessing ? (
+          <ProcessingView
+            stage={processing.stage}
+            percent={processing.percent}
+            message={processing.message}
+            elapsedSecs={processing.elapsedSecs}
+            etaSecs={processing.etaSecs}
+            onStop={handleStopProcessing}
+            stopDisabled={isStopping}
+            stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
+          />
         ) : (
           <>
             <VideoDropzone
               selectedFile={videoPath}
               onFileSelect={setVideoPath}
-              disabled={isProcessing}
             />
 
             <Separator />
@@ -323,19 +342,16 @@ function App() {
               sourceLanguages={languageOptions.source}
               targetLanguages={languageOptions.target}
               translationStatus={translationStatus}
-              disabled={isProcessing}
             />
 
             <ModelSelector
               model={model}
               onChange={setModel}
-              disabled={isProcessing}
             />
 
             <FormatSelector
               format={format}
               onChange={setFormat}
-              disabled={isProcessing}
             />
 
             <SettingsPanel
@@ -345,24 +361,7 @@ function App() {
               onBeamSizeChange={setBeamSize}
               onVadFilterChange={setVadFilter}
               onVadParamsChange={setVadParams}
-              disabled={isProcessing}
             />
-
-            {isProcessing && (
-              <>
-                <Separator />
-                <ProcessingView
-                  stage={processing.stage}
-                  percent={processing.percent}
-                  message={processing.message}
-                  elapsedSecs={processing.elapsedSecs}
-                  etaSecs={processing.etaSecs}
-                  onStop={handleStopProcessing}
-                  stopDisabled={isStopping}
-                  stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
-                />
-              </>
-            )}
 
             {appState === "error" && errorMsg && (
               <div className="flex items-start gap-3 border border-destructive/30 bg-destructive/5 p-4">
@@ -379,19 +378,17 @@ function App() {
               </div>
             )}
 
-            {!isProcessing && (
-              <Button
-                size="lg"
-                className="w-full py-6 text-xs font-medium uppercase tracking-widest"
-                onClick={handleGenerate}
-                disabled={!videoPath || !connected || isProcessing}
-              >
-                <HugeiconsIcon icon={SparklesIcon} className="size-4" strokeWidth={1.5} />
-                {!connected
-                  ? "Waiting for backend..."
-                  : "Generate Subtitles"}
-              </Button>
-            )}
+            <Button
+              size="lg"
+              className="w-full py-6 text-xs font-medium uppercase tracking-widest"
+              onClick={handleGenerate}
+              disabled={!videoPath || !connected}
+            >
+              <HugeiconsIcon icon={SparklesIcon} className="size-4" strokeWidth={1.5} />
+              {!connected
+                ? "Waiting for backend..."
+                : "Generate Subtitles"}
+            </Button>
           </>
         )}
       </main>

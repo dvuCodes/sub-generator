@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+func TestPipelineRunStopsServicesOnValidationFailure(t *testing.T) {
+	cleanupCalled := false
+	pipeline := &Pipeline{
+		cleanupServices: func() {
+			cleanupCalled = true
+		},
+	}
+
+	pipeline.Run(Command{})
+
+	if !cleanupCalled {
+		t.Fatal("Pipeline.Run() did not stop managed services on validation failure")
+	}
+}
+
 func TestValidateTranscriptionResultRejectsEmptySegments(t *testing.T) {
 	err := validateTranscriptionResult(&TranscriptionResult{})
 	if err == nil {
