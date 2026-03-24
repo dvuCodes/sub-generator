@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,10 +20,12 @@ type Translator struct {
 	maxWorkers int
 }
 
+const translationRequestTimeout = 10 * time.Minute
+
 func NewTranslator(port int) *Translator {
 	return &Translator{
 		baseURL:    localServiceBaseURL(port),
-		client:     &http.Client{Timeout: 120 * time.Second},
+		client:     &http.Client{Timeout: translationRequestTimeout},
 		maxWorkers: 1, // LLM inference is GPU-bound; no benefit from concurrency
 	}
 }
@@ -327,6 +330,13 @@ func parseBlockTranslation(response string, expectedCount int) ([]string, error)
 
 // --- Block translation with retry/fallback ---
 
+type blockParseFailure struct {
+	cause error
+}
+
+func (e *blockParseFailure) Error() string { return e.cause.Error() }
+func (e *blockParseFailure) Unwrap() error { return e.cause }
+
 func (t *Translator) TranslateBlocks(
 	blocks []ContextBlock,
 	sourceLang, targetLang string,
@@ -347,6 +357,11 @@ func (t *Translator) TranslateBlocks(
 		translations, err := t.translateBlockWithRetry(sysPrompt, block, history)
 
 		if err != nil {
+			var parseFailure *blockParseFailure
+			if !errors.As(err, &parseFailure) {
+				return nil, err
+			}
+
 			// Fallback: translate each segment individually
 			fmt.Fprintf(os.Stderr, "warning: context-aware translation failed for block %d (segments %d-%d), falling back to per-segment translation: %v\n",
 				blockIdx, completedSegments+1, completedSegments+len(block.Segments), err)
@@ -412,7 +427,7 @@ func (t *Translator) translateBlockWithRetry(sysPrompt string, block ContextBloc
 
 	translations, parseErr = parseBlockTranslation(response, expectedCount)
 	if parseErr != nil {
-		return nil, fmt.Errorf("retry parse also failed: %w", parseErr)
+		return nil, &blockParseFailure{cause: fmt.Errorf("retry parse also failed: %w", parseErr)}
 	}
 
 	return translations, nil
