@@ -63,7 +63,7 @@ func main() {
 func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) {
 	switch cmd.Command {
 	case "generate":
-		pipeline.Run(cmd)
+		go pipeline.Run(cmd)
 
 	case "list_languages":
 		langs, err := listAvailableLanguages()
@@ -177,15 +177,42 @@ func detectVRAM() *VRAMInfo {
 	if err != nil {
 		return nil
 	}
-	parts := strings.SplitN(strings.TrimSpace(out), ", ", 3)
-	if len(parts) != 3 {
+	return parseVRAMInfo(out)
+}
+
+func parseVRAMInfo(out string) *VRAMInfo {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) == 0 {
 		return nil
 	}
-	total, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
-	used, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
-	free, err3 := strconv.Atoi(strings.TrimSpace(parts[2]))
-	if err1 != nil || err2 != nil || err3 != nil {
+
+	info := &VRAMInfo{}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		parts := strings.Split(line, ",")
+		if len(parts) != 3 {
+			return nil
+		}
+
+		total, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+		used, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+		free, err3 := strconv.Atoi(strings.TrimSpace(parts[2]))
+		if err1 != nil || err2 != nil || err3 != nil {
+			return nil
+		}
+
+		info.TotalMiB += total
+		info.UsedMiB += used
+		info.FreeMiB += free
+	}
+
+	if info.TotalMiB == 0 {
 		return nil
 	}
-	return &VRAMInfo{TotalMiB: total, UsedMiB: used, FreeMiB: free}
+
+	return info
 }

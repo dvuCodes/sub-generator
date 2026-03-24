@@ -94,35 +94,6 @@ func (p *Pipeline) Run(cmd Command) {
 		}
 	}
 
-	// Step 2c: Download GemmaTranslate model if translation requested and model missing
-	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
-		llamaDir := preferredLlamaInstallDir(p.svcManager.config.SearchRoots)
-		gemmaModelPath := filepath.Join(llamaDir, "models", gemmaModelFilenameConst)
-		if _, err := os.Stat(gemmaModelPath); err != nil {
-			if !os.IsNotExist(err) {
-				sendError("Translation model check failed", fmt.Sprintf("cannot access model at %q: %v", gemmaModelPath, err))
-				return
-			}
-			sendStage("downloading_model", "Downloading translation model (~7 GB)...")
-			if err := os.MkdirAll(filepath.Dir(gemmaModelPath), 0o755); err != nil {
-				sendError("Translation model download failed", err.Error())
-				return
-			}
-			if err := DownloadModel(GemmaModelDownloadURL(), gemmaModelPath, func(downloaded, total int64) {
-				if total > 0 {
-					pct := float64(downloaded) / float64(total) * 100
-					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading translation model %s / %s", formatBytes(downloaded), formatBytes(total)))
-				} else {
-					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading translation model %s...", formatBytes(downloaded)))
-				}
-			}); err != nil {
-				sendError("Translation model download failed", err.Error())
-				return
-			}
-			sendProgress("downloading_model", 100, "Translation model downloaded")
-		}
-	}
-
 	// Step 3: Ensure services are running
 	sendStage("starting_services", "Ensuring services are running...")
 	if err := p.ensureServices(cmd); err != nil {
@@ -243,6 +214,32 @@ func (p *Pipeline) Run(cmd Command) {
 				),
 			)
 			return
+		}
+
+		llamaDir := preferredLlamaInstallDir(p.svcManager.config.SearchRoots)
+		gemmaModelPath := filepath.Join(llamaDir, "models", gemmaModelFilenameConst)
+		if _, err := os.Stat(gemmaModelPath); err != nil {
+			if !os.IsNotExist(err) {
+				sendError("Translation model check failed", fmt.Sprintf("cannot access model at %q: %v", gemmaModelPath, err))
+				return
+			}
+			sendStage("downloading_model", "Downloading translation model (~7 GB)...")
+			if err := os.MkdirAll(filepath.Dir(gemmaModelPath), 0o755); err != nil {
+				sendError("Translation model download failed", err.Error())
+				return
+			}
+			if err := DownloadModel(GemmaModelDownloadURL(), gemmaModelPath, func(downloaded, total int64) {
+				if total > 0 {
+					pct := float64(downloaded) / float64(total) * 100
+					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading translation model %s / %s", formatBytes(downloaded), formatBytes(total)))
+				} else {
+					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading translation model %s...", formatBytes(downloaded)))
+				}
+			}); err != nil {
+				sendError("Translation model download failed", err.Error())
+				return
+			}
+			sendProgress("downloading_model", 100, "Translation model downloaded")
 		}
 
 		// Stop whisper-server to free GPU VRAM before starting llama-server
