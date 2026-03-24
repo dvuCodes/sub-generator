@@ -86,6 +86,7 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string, vadParams *VADPar
 			fmt.Errorf("failed to start whisper-server %q: %w", whisperBinary, err),
 		)
 	}
+	assignToJob(cmd.Process)
 
 	sm.mu.Lock()
 	sm.whisperProcess = cmd.Process
@@ -160,6 +161,7 @@ func (sm *ServiceManager) StartLlamaServer() error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start llama-server %q: %w", llamaBinary, err)
 	}
+	assignToJob(cmd.Process)
 
 	sm.mu.Lock()
 	sm.llamaProcess = cmd.Process

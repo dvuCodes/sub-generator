@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { VramInfo, VramInfoCommand } from "../lib/types";
 
 interface UseVramPollingOptions {
@@ -35,9 +35,9 @@ export function useVramPolling({
     };
   }, [enabled, sendCommand, intervalMs]);
 
-  const handleVramResponse = (vramData: VramInfo | null) => {
+  const handleVramResponse = useCallback((vramData: VramInfo | null) => {
     setVram(vramData);
-  };
+  }, []);
 
   return { vram, handleVramResponse };
 }
