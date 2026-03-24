@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FormatSelector } from "./components/FormatSelector";
 import { LanguageSelector } from "./components/LanguageSelector";
 import { ModelSelector } from "./components/ModelSelector";
@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { useSidecar } from "./hooks/useSidecar";
 import { useVramPolling } from "./hooks/useVramPolling";
 import { buildLanguageOptions } from "./lib/languageOptions";
+import { reduceSystemInfo, type SystemInfoState } from "./lib/systemInfo";
 import {
   advanceProcessingState,
   createInitialProcessingState,
@@ -37,12 +38,6 @@ interface CompletionState {
   transcriptionLog?: string;
   segments: number;
   durationSecs: number;
-}
-
-interface SystemInfoState {
-  whisperServer: boolean;
-  translationEngine: boolean;
-  gpu: string;
 }
 
 function App() {
@@ -85,6 +80,9 @@ function App() {
     sendCommand,
   });
 
+  const handleVramResponseRef = useRef(handleVramResponse);
+  handleVramResponseRef.current = handleVramResponse;
+
   useEffect(() => {
     connect().catch((err) => {
       setErrorMsg(`Failed to start backend: ${err}`);
@@ -112,28 +110,15 @@ function App() {
           break;
         case "languages":
           setTranslationWarning("");
-          setSystemInfo((prev) =>
-            prev
-              ? { ...prev, translationEngine: true }
-              : {
-                  whisperServer: false,
-                  translationEngine: true,
-                  gpu: "unknown",
-                }
-          );
           break;
         case "system_info":
-          setSystemInfo({
-            whisperServer: response.whisper_server,
-            translationEngine: response.translation_engine,
-            gpu: response.gpu,
-          });
+          setSystemInfo((prev) => reduceSystemInfo(prev, response));
           if (response.translation_engine) {
             setTranslationWarning("");
           }
           break;
         case "vram_info":
-          handleVramResponse(response.vram);
+          handleVramResponseRef.current(response.vram);
           break;
         case "error": {
           const formattedError = formatRuntimeError(

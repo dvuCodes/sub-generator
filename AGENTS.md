@@ -35,6 +35,7 @@
 - Always mark tasks off when complete.
 - After every correction to assumptions/process, update this `AGENTS.md`.
 - For loopback `whisper-server` HTTP calls, stage multipart uploads in a temp file and send them as fixed-length request bodies; `io.Pipe` streaming uploads can still fail with `use of closed network connection` on real transcription files even when a small probe file succeeds.
+- Treat `list_languages` as static capability metadata only; do not use it as proof that the translation engine is installed or running.
 - When testing streamed Go HTTP request bodies, do not rely on `ContentLength`; assert the streaming mechanism itself (for example `io.PipeReader`) or read behavior instead.
 - When making file edits, use the Codex `apply_patch` tool (do not embed `apply_patch` inside shell commands).
 - Do not propose follow-up tasks or enhancements at the end of your final answer.
