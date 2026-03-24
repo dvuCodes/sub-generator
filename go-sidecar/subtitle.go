@@ -121,3 +121,45 @@ func astiInt(v int) *int           { return &v }
 func astiColor(r, g, b int) *astisub.Color {
 	return &astisub.Color{Red: uint8(r), Green: uint8(g), Blue: uint8(b), Alpha: 0}
 }
+
+// DeriveTranscriptionLogPath generates a .transcription.txt path from the input video path.
+// e.g., "movie.mp4" → "movie.transcription.txt"
+func DeriveTranscriptionLogPath(inputVideo string) string {
+	ext := filepath.Ext(inputVideo)
+	base := strings.TrimSuffix(inputVideo, ext)
+	return base + ".transcription.txt"
+}
+
+// WriteTranscriptionLog writes the raw transcription segments to a timestamped .txt file
+// for diagnostic purposes (RCA: transcription vs translation quality).
+func WriteTranscriptionLog(segments []Segment, outputPath string, detectedLang string) error {
+	dir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	f, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create transcription log: %w", err)
+	}
+	defer f.Close()
+
+	fmt.Fprintf(f, "# Transcription (detected language: %s)\n\n", detectedLang)
+
+	for _, seg := range segments {
+		start := formatTimestamp(seg.Start)
+		end := formatTimestamp(seg.End)
+		fmt.Fprintf(f, "[%s --> %s] %s\n", start, end, strings.TrimSpace(seg.Text))
+	}
+
+	return nil
+}
+
+func formatTimestamp(seconds float64) string {
+	d := time.Duration(seconds * float64(time.Second))
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	ms := int(d.Milliseconds()) % 1000
+	return fmt.Sprintf("%02d:%02d:%02d.%03d", h, m, s, ms)
+}

@@ -63,6 +63,30 @@ func (p *Pipeline) Run(cmd Command) {
 		sendProgress("downloading_model", 100, "Model downloaded")
 	}
 
+	// Step 2b: Download VAD model if needed
+	if cmd.VADFilter {
+		vadModelPath := filepath.Join(installDir, "models", vadModelFilename)
+		if _, err := os.Stat(vadModelPath); os.IsNotExist(err) {
+			sendStage("downloading_model", "Downloading VAD model...")
+			if err := os.MkdirAll(filepath.Dir(vadModelPath), 0o755); err != nil {
+				sendError("VAD model download failed", err.Error())
+				return
+			}
+			if err := DownloadModel(VADModelDownloadURL(), vadModelPath, func(downloaded, total int64) {
+				if total > 0 {
+					pct := float64(downloaded) / float64(total) * 100
+					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading VAD model %s / %s", formatBytes(downloaded), formatBytes(total)))
+				} else {
+					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading VAD model %s...", formatBytes(downloaded)))
+				}
+			}); err != nil {
+				sendError("VAD model download failed", err.Error())
+				return
+			}
+			sendProgress("downloading_model", 100, "VAD model downloaded")
+		}
+	}
+
 	// Step 3: Ensure services are running
 	sendStage("starting_services", "Ensuring services are running...")
 	if err := p.ensureServices(cmd); err != nil {
@@ -92,6 +116,21 @@ func (p *Pipeline) Run(cmd Command) {
 	sendProgress("transcribing", 100, fmt.Sprintf("Transcribed %d segments", len(result.Segments)))
 
 	segments := result.Segments
+
+	// Step 4b: Write diagnostic transcription log (when translating)
+	var transcriptionLogPath string
+	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
+		logPath := DeriveTranscriptionLogPath(cmd.InputVideo)
+		detectedLang := result.Language
+		if cmd.SourceLang != nil && *cmd.SourceLang != "" {
+			detectedLang = *cmd.SourceLang
+		}
+		if err := WriteTranscriptionLog(result.Segments, logPath, detectedLang); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write transcription log: %v\n", err)
+		} else {
+			transcriptionLogPath = logPath
+		}
+	}
 
 	// Step 5: Translate (if target language specified)
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
@@ -162,10 +201,11 @@ func (p *Pipeline) Run(cmd Command) {
 	// Done
 	duration := time.Since(startTime).Seconds()
 	sendJSON(CompleteResponse{
-		Type:         "complete",
-		OutputPath:   outputPath,
-		Segments:     len(segments),
-		DurationSecs: duration,
+		Type:             "complete",
+		OutputPath:       outputPath,
+		TranscriptionLog: transcriptionLogPath,
+		Segments:         len(segments),
+		DurationSecs:     duration,
 	})
 }
 
