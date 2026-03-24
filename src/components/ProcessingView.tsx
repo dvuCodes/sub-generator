@@ -48,7 +48,7 @@ export function ProcessingView({
   percent,
   message,
   elapsedSecs,
-  etaSecs,
+  etaSecs: _etaSecs,
   onStop,
   stopDisabled = false,
   stopLabel = "Stop",
