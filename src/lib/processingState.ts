@@ -4,6 +4,8 @@ export interface ProcessingState {
   stage: string;
   percent: number | null;
   message: string;
+  elapsedSecs: number | null;
+  etaSecs: number | null;
 }
 
 export function createInitialProcessingState(): ProcessingState {
@@ -11,6 +13,8 @@ export function createInitialProcessingState(): ProcessingState {
     stage: "",
     percent: null,
     message: "",
+    elapsedSecs: null,
+    etaSecs: null,
   };
 }
 
@@ -23,6 +27,8 @@ export function advanceProcessingState(
       stage: response.stage,
       percent: clampPercent(response.percent),
       message: response.message,
+      elapsedSecs: response.elapsed_secs ?? null,
+      etaSecs: response.eta_secs ?? null,
     };
   }
 
@@ -30,6 +36,8 @@ export function advanceProcessingState(
     stage: response.stage,
     percent: current.stage === response.stage ? current.percent : null,
     message: response.message,
+    elapsedSecs: null,
+    etaSecs: null,
   };
 }
 
