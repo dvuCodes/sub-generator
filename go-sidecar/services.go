@@ -272,15 +272,17 @@ func buildWhisperCommand(binaryPath, modelPath, vadModelPath string, port int, v
 
 func buildLlamaCommand(binaryPath, modelPath string, port int) *exec.Cmd {
 	gpuLayers := "999"
+	ctxSize := "2048"
 	if detectGPU() == "none" {
 		gpuLayers = "0"
+		ctxSize = "1024"
 	}
 	args := []string{
 		"-m", modelPath,
 		"--port", fmt.Sprintf("%d", port),
 		"--host", loopbackHost,
 		"--n-gpu-layers", gpuLayers,
-		"--ctx-size", "512",
+		"--ctx-size", ctxSize,
 	}
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = filepath.Dir(binaryPath)

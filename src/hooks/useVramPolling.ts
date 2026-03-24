@@ -14,17 +14,31 @@ export function useVramPolling({
 }: UseVramPollingOptions) {
   const [vram, setVram] = useState<VramInfo | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const awaitingResponseRef = useRef(false);
+
+  const requestVram = useCallback(() => {
+    if (awaitingResponseRef.current) {
+      return;
+    }
+
+    awaitingResponseRef.current = true;
+    sendCommand({ command: "vram_info" }).catch((error) => {
+      awaitingResponseRef.current = false;
+      console.error(error);
+    });
+  }, [sendCommand]);
 
   useEffect(() => {
     if (!enabled) {
       setVram(null);
+      awaitingResponseRef.current = false;
       return;
     }
 
-    sendCommand({ command: "vram_info" }).catch(console.error);
+    requestVram();
 
     intervalRef.current = setInterval(() => {
-      sendCommand({ command: "vram_info" }).catch(console.error);
+      requestVram();
     }, intervalMs);
 
     return () => {
@@ -32,10 +46,12 @@ export function useVramPolling({
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      awaitingResponseRef.current = false;
     };
-  }, [enabled, sendCommand, intervalMs]);
+  }, [enabled, intervalMs, requestVram]);
 
   const handleVramResponse = useCallback((vramData: VramInfo | null) => {
+    awaitingResponseRef.current = false;
     setVram(vramData);
   }, []);
 
