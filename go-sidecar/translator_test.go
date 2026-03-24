@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -145,6 +146,33 @@ func TestTranslateParsesOpenAIChatResponse(t *testing.T) {
 	}
 	if result != "こんにちは世界" {
 		t.Fatalf("Translate() = %q, want %q", result, "こんにちは世界")
+	}
+}
+
+func TestTranslateDoesNotSendFixedMaxTokensCap(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var raw map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		if _, ok := raw["max_tokens"]; ok {
+			t.Fatalf("request unexpectedly included max_tokens: %#v", raw["max_tokens"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer server.Close()
+
+	translator := &Translator{
+		baseURL:    server.URL,
+		client:     server.Client(),
+		maxWorkers: 1,
+	}
+
+	if _, err := translator.Translate(string(bytes.Repeat([]byte("a"), 4000)), "en", "ja"); err != nil {
+		t.Fatalf("Translate() error = %v", err)
 	}
 }
 

@@ -82,3 +82,33 @@ func TestShouldReuseManagedLlamaProcessRequiresMatchingModelAndHealth(t *testing
 		t.Fatal("shouldReuseManagedLlamaProcess() = true, want false for unhealthy process")
 	}
 }
+
+func TestRejectUnmanagedHealthyServiceRejectsUntrackedHealthyProcess(t *testing.T) {
+	err := rejectUnmanagedHealthyService("llama-server", 8081, nil, true)
+	if err == nil {
+		t.Fatal("rejectUnmanagedHealthyService() error = nil, want unmanaged service conflict")
+	}
+
+	message := err.Error()
+	for _, fragment := range []string{
+		"llama-server",
+		"8081",
+		"already responding",
+		"not managed by SubGen",
+	} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("rejectUnmanagedHealthyService() error %q missing %q", message, fragment)
+		}
+	}
+}
+
+func TestRejectUnmanagedHealthyServiceAllowsTrackedOrStoppedProcess(t *testing.T) {
+	if err := rejectUnmanagedHealthyService("whisper-server", 8080, nil, false); err != nil {
+		t.Fatalf("rejectUnmanagedHealthyService(nil, false) error = %v, want nil", err)
+	}
+
+	process := &os.Process{Pid: 1234}
+	if err := rejectUnmanagedHealthyService("whisper-server", 8080, process, true); err != nil {
+		t.Fatalf("rejectUnmanagedHealthyService(process, true) error = %v, want nil", err)
+	}
+}

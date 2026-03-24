@@ -30,7 +30,7 @@ func NewTranslator(port int) *Translator {
 type chatCompletionRequest struct {
 	Messages    []chatMessage `json:"messages"`
 	Temperature float64       `json:"temperature"`
-	MaxTokens   int           `json:"max_tokens"`
+	MaxTokens   *int          `json:"max_tokens,omitempty"`
 }
 
 type chatMessage struct {
@@ -149,7 +149,6 @@ func (t *Translator) Translate(text, sourceLang, targetLang string) (string, err
 			{Role: "user", Content: prompt},
 		},
 		Temperature: 0.1,
-		MaxTokens:   512,
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
