@@ -94,6 +94,35 @@ func (p *Pipeline) Run(cmd Command) {
 		}
 	}
 
+	// Step 2c: Download GemmaTranslate model if translation requested and model missing
+	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
+		llamaDir := preferredLlamaInstallDir(p.svcManager.config.SearchRoots)
+		gemmaModelPath := filepath.Join(llamaDir, "models", gemmaModelFilenameConst)
+		if _, err := os.Stat(gemmaModelPath); err != nil {
+			if !os.IsNotExist(err) {
+				sendError("Translation model check failed", fmt.Sprintf("cannot access model at %q: %v", gemmaModelPath, err))
+				return
+			}
+			sendStage("downloading_model", "Downloading translation model (~7 GB)...")
+			if err := os.MkdirAll(filepath.Dir(gemmaModelPath), 0o755); err != nil {
+				sendError("Translation model download failed", err.Error())
+				return
+			}
+			if err := DownloadModel(GemmaModelDownloadURL(), gemmaModelPath, func(downloaded, total int64) {
+				if total > 0 {
+					pct := float64(downloaded) / float64(total) * 100
+					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading translation model %s / %s", formatBytes(downloaded), formatBytes(total)))
+				} else {
+					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading translation model %s...", formatBytes(downloaded)))
+				}
+			}); err != nil {
+				sendError("Translation model download failed", err.Error())
+				return
+			}
+			sendProgress("downloading_model", 100, "Translation model downloaded")
+		}
+	}
+
 	// Step 3: Ensure services are running
 	sendStage("starting_services", "Ensuring services are running...")
 	if err := p.ensureServices(cmd); err != nil {
@@ -196,8 +225,6 @@ func (p *Pipeline) Run(cmd Command) {
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
 		sendStage("translating", fmt.Sprintf("Translating to %s...", *cmd.TargetLang))
 
-		translator := NewTranslator(p.svcManager.config.LibreTranslatePort)
-
 		// Determine source language
 		sourceLang := "auto"
 		if cmd.SourceLang != nil && *cmd.SourceLang != "" {
@@ -206,20 +233,28 @@ func (p *Pipeline) Run(cmd Command) {
 			sourceLang = result.Language
 		}
 
-		pairs, err := translator.ListLanguages()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not verify translation pair availability: %v\n", err)
-		} else if !supportsTranslationPair(pairs, sourceLang, *cmd.TargetLang) {
+		if !supportsTranslationPair(sourceLang, *cmd.TargetLang) {
 			sendError(
 				"Translation failed",
 				fmt.Sprintf(
-					"translation pair %s -> %s is not available according to LibreTranslate",
+					"translation pair %s -> %s is not supported by GemmaTranslate",
 					sourceLang,
 					*cmd.TargetLang,
 				),
 			)
 			return
 		}
+
+		// Stop whisper-server to free GPU VRAM before starting llama-server
+		p.svcManager.StopWhisperServer()
+
+		sendProgress("translating", 0, "Starting translation engine...")
+		if err := p.svcManager.StartLlamaServer(); err != nil {
+			sendError("Translation engine startup failed", err.Error())
+			return
+		}
+
+		translator := NewTranslator(p.svcManager.config.LlamaServerPort)
 
 		translated, err := translator.TranslateSegments(
 			segments,
@@ -292,21 +327,10 @@ func (p *Pipeline) validateInput(path string) error {
 }
 
 func (p *Pipeline) ensureServices(cmd Command) error {
-	// Always need whisper-server for transcription
+	// Start whisper-server for transcription (llama-server starts later, just before translation)
 	sendProgress("starting_services", 25, "Starting whisper-server...")
 	if err := p.svcManager.StartWhisperServer(cmd.ModelSize, cmd.VADParams); err != nil {
 		return fmt.Errorf("whisper-server: %w", err)
-	}
-	sendProgress("starting_services", 50, "whisper-server ready")
-
-	// Only need LibreTranslate if translating
-	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
-		if !p.svcManager.IsLibreTranslateRunning() {
-			sendProgress("starting_services", 75, "Starting LibreTranslate...")
-			if err := p.svcManager.StartLibreTranslate(); err != nil {
-				return fmt.Errorf("libretranslate: %w", err)
-			}
-		}
 	}
 	sendProgress("starting_services", 100, "All services ready")
 

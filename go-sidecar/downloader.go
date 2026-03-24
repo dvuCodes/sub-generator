@@ -28,6 +28,11 @@ func VADModelDownloadURL() string {
 
 const vadModelFilename = "ggml-silero-v5.1.2.bin"
 
+// GemmaModelDownloadURL returns the Hugging Face download URL for the GemmaTranslate-v3 Q4_K_S GGUF model.
+func GemmaModelDownloadURL() string {
+	return "https://huggingface.co/mradermacher/GemmaTranslate-v3-12B-i1-GGUF/resolve/main/GemmaTranslate-v3-12B.i1-Q4_K_S.gguf"
+}
+
 // formatBytes converts a byte count into a human-readable string.
 // Examples: 0 -> "0 B", 1024 -> "1.0 KB", 1536 -> "1.5 KB", etc.
 func formatBytes(bytes int64) string {

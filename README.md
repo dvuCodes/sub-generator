@@ -1,6 +1,6 @@
 # SubGen
 
-SubGen is a local desktop subtitle generator built with Tauri. The app uses a React frontend, a Rust Tauri host, and a Go sidecar that coordinates transcription with `whisper-server`, optional translation with LibreTranslate, and subtitle file output in `srt`, `ass`, or `vtt`.
+SubGen is a local desktop subtitle generator built with Tauri. The app uses a React frontend, a Rust Tauri host, and a Go sidecar that coordinates transcription with `whisper-server`, optional translation with GemmaTranslate-v3 via `llama-server`, and subtitle file output in `srt`, `ass`, or `vtt`.
 
 ## Stack
 
@@ -9,7 +9,7 @@ SubGen is a local desktop subtitle generator built with Tauri. The app uses a Re
 - Tauri v2 with Rust
 - Go sidecar
 - `whisper-server` from `whisper.cpp`
-- LibreTranslate
+- `llama-server` from `llama.cpp` (GemmaTranslate-v3 for translation)
 
 ## Repository Layout
 
@@ -17,7 +17,7 @@ SubGen is a local desktop subtitle generator built with Tauri. The app uses a Re
 src/                React UI and sidecar IPC client
 src-tauri/          Tauri host, capabilities, and desktop config
 go-sidecar/         Go pipeline, service management, and subtitle writing
-services/           Setup notes for whisper-server and LibreTranslate
+services/           Setup notes for whisper-server and llama-server
 public/             Static frontend assets
 ```
 
@@ -29,9 +29,10 @@ public/             Static frontend assets
 - `whisper-server` available either:
   - on `PATH`, or
   - under `services/whisper-server/`
-- LibreTranslate available either:
+- `llama-server` available either:
   - on `PATH`, or
-  - in Docker on port `5000`
+  - under `services/llama-server/`
+  - The GemmaTranslate-v3 GGUF model (~7 GB) downloads automatically on first translation request
 
 The Go sidecar now checks the documented `services/whisper-server/` layout before falling back to plain `whisper-server` on `PATH`.
 
@@ -116,5 +117,5 @@ cargo check
 
 1. React connects to the Tauri host.
 2. Tauri spawns the bundled Go sidecar.
-3. The sidecar starts `whisper-server` and LibreTranslate as needed.
+3. The sidecar starts `whisper-server` for transcription, then `llama-server` (GemmaTranslate-v3) for translation as needed.
 4. The sidecar transcribes, optionally translates, and writes the subtitle file next to the input video unless an explicit output path is provided.

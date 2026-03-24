@@ -46,12 +46,17 @@ export interface StopServicesCommand {
   command: "stop_services";
 }
 
+export interface VramInfoCommand {
+  command: "vram_info";
+}
+
 export type SidecarCommand =
   | GenerateCommand
   | ListLanguagesCommand
   | SystemInfoCommand
   | StartServicesCommand
-  | StopServicesCommand;
+  | StopServicesCommand
+  | VramInfoCommand;
 
 // IPC responses (Go sidecar -> frontend)
 export interface ProgressResponse {
@@ -96,8 +101,19 @@ export interface LanguagesResponse {
 export interface SystemInfoResponse {
   type: "system_info";
   whisper_server: boolean;
-  libretranslate: boolean;
+  translation_engine: boolean;
   gpu: string;
+}
+
+export interface VramInfo {
+  total_mib: number;
+  used_mib: number;
+  free_mib: number;
+}
+
+export interface VramInfoResponse {
+  type: "vram_info";
+  vram: VramInfo | null;
 }
 
 export type SidecarResponse =
@@ -106,4 +122,5 @@ export type SidecarResponse =
   | CompleteResponse
   | ErrorResponse
   | LanguagesResponse
-  | SystemInfoResponse;
+  | SystemInfoResponse
+  | VramInfoResponse;
