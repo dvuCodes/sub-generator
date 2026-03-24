@@ -59,3 +59,30 @@ func TestSupportsTranslationPairRequiresSourceSpecificTarget(t *testing.T) {
 		t.Fatal("supportsTranslationPair() = true, want false when the target only exists for a different source")
 	}
 }
+
+func TestSupportsTranslationPairAutoSource(t *testing.T) {
+	pairs := []LanguagePair{
+		{Source: "en", Target: "ja"},
+		{Source: "en", Target: "fr"},
+		{Source: "ja", Target: "en"},
+	}
+
+	// "auto" source: should match if ANY source supports the target
+	if !supportsTranslationPair(pairs, "auto", "ja") {
+		t.Fatal("supportsTranslationPair(auto, ja) = false, want true (en->ja exists)")
+	}
+	if !supportsTranslationPair(pairs, "auto", "en") {
+		t.Fatal("supportsTranslationPair(auto, en) = false, want true (ja->en exists)")
+	}
+	if supportsTranslationPair(pairs, "auto", "zz") {
+		t.Fatal("supportsTranslationPair(auto, zz) = true, want false (no source supports zz)")
+	}
+
+	// empty string source: same as "auto"
+	if !supportsTranslationPair(pairs, "", "ja") {
+		t.Fatal("supportsTranslationPair('', ja) = false, want true")
+	}
+	if supportsTranslationPair(pairs, "", "zz") {
+		t.Fatal("supportsTranslationPair('', zz) = true, want false")
+	}
+}

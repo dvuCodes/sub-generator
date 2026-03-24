@@ -127,6 +127,7 @@ func newInferenceRequest(
 	vadFilter bool,
 ) (*http.Request, string, func(), error) {
 	if beamSize > 8 {
+		fmt.Fprintf(os.Stderr, "warning: beam_size %d exceeds whisper-server maximum of 8, capping to 8\n", beamSize)
 		beamSize = 8
 	}
 

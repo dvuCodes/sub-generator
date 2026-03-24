@@ -42,7 +42,11 @@ func (p *Pipeline) Run(cmd Command) {
 	installDir := preferredWhisperInstallDir(p.svcManager.config.SearchRoots)
 	modelPath := filepath.Join(installDir, "models", modelFile)
 
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+	if _, err := os.Stat(modelPath); err != nil {
+		if !os.IsNotExist(err) {
+			sendError("Model check failed", fmt.Sprintf("cannot access model at %q: %v", modelPath, err))
+			return
+		}
 		sendStage("downloading_model", fmt.Sprintf("Downloading %s model...", cmd.ModelSize))
 		url := ModelDownloadURL(cmd.ModelSize)
 		if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
@@ -66,7 +70,10 @@ func (p *Pipeline) Run(cmd Command) {
 	// Step 2b: Download VAD model if needed
 	if cmd.VADFilter {
 		vadModelPath := filepath.Join(installDir, "models", vadModelFilename)
-		if _, err := os.Stat(vadModelPath); os.IsNotExist(err) {
+		if _, err := os.Stat(vadModelPath); err != nil && !os.IsNotExist(err) {
+			sendError("VAD model check failed", fmt.Sprintf("cannot access VAD model at %q: %v", vadModelPath, err))
+			return
+		} else if os.IsNotExist(err) {
 			sendStage("downloading_model", "Downloading VAD model...")
 			if err := os.MkdirAll(filepath.Dir(vadModelPath), 0o755); err != nil {
 				sendError("VAD model download failed", err.Error())
@@ -117,16 +124,16 @@ func (p *Pipeline) Run(cmd Command) {
 
 	segments := result.Segments
 
-	// Step 4b: Write diagnostic transcription log (when translating)
+	// Step 4b: Write diagnostic transcription log (before translation overwrites segments)
 	var transcriptionLogPath string
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
 		logPath := DeriveTranscriptionLogPath(cmd.InputVideo)
-		detectedLang := result.Language
+		sourceLang := result.Language
 		if cmd.SourceLang != nil && *cmd.SourceLang != "" {
-			detectedLang = *cmd.SourceLang
+			sourceLang = *cmd.SourceLang
 		}
-		if err := WriteTranscriptionLog(result.Segments, logPath, detectedLang); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write transcription log: %v\n", err)
+		if err := WriteTranscriptionLog(result.Segments, logPath, sourceLang); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write transcription log to %q: %v\n", logPath, err)
 		} else {
 			transcriptionLogPath = logPath
 		}
@@ -146,18 +153,19 @@ func (p *Pipeline) Run(cmd Command) {
 			sourceLang = result.Language
 		}
 
-		if pairs, err := translator.ListLanguages(); err == nil {
-			if !supportsTranslationPair(pairs, sourceLang, *cmd.TargetLang) {
-				sendError(
-					"Translation failed",
-					fmt.Sprintf(
-						"translation pair %s -> %s is not available according to LibreTranslate",
-						sourceLang,
-						*cmd.TargetLang,
-					),
-				)
-				return
-			}
+		pairs, err := translator.ListLanguages()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not verify translation pair availability: %v\n", err)
+		} else if !supportsTranslationPair(pairs, sourceLang, *cmd.TargetLang) {
+			sendError(
+				"Translation failed",
+				fmt.Sprintf(
+					"translation pair %s -> %s is not available according to LibreTranslate",
+					sourceLang,
+					*cmd.TargetLang,
+				),
+			)
+			return
 		}
 
 		translated, err := translator.TranslateSegments(

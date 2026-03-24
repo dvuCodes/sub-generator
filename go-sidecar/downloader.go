@@ -55,7 +55,7 @@ func formatBytes(bytes int64) string {
 //   - Writes to destPath+".part" and renames to destPath on completion.
 //   - If a .part file already exists, sends a Range header to resume.
 //   - On 206 Partial Content the .part file is opened for append.
-//   - On any other 2xx the .part file is truncated and overwritten.
+//   - On 200 OK the .part file is truncated and rewritten from scratch; any other status is an error.
 //   - Retries once (with a 2-second pause) on 429 or 5xx responses.
 //   - Progress callback is invoked on every buffer read (~512 KB chunks).
 //   - Only https:// URLs are accepted.
@@ -85,6 +85,10 @@ func DownloadModel(url, destPath string, onProgress func(downloaded, total int64
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			time.Sleep(2 * time.Second)
+			// Re-check .part file size in case previous attempt modified it.
+			if info, err := os.Stat(partPath); err == nil {
+				existingBytes = info.Size()
+			}
 		}
 
 		lastErr = downloadAttempt(url, destPath, partPath, existingBytes, onProgress)
@@ -182,7 +186,9 @@ func downloadAttempt(url, destPath, partPath string, existingBytes int64, onProg
 		}
 		if readErr != nil {
 			partFile.Close()
-			return fmt.Errorf("read response body: %w", readErr)
+			return &retryableError{
+				cause: fmt.Errorf("read response body: %w", readErr),
+			}
 		}
 	}
 
@@ -198,7 +204,7 @@ func downloadAttempt(url, destPath, partPath string, existingBytes int64, onProg
 		}
 	}
 
-	// Atomically rename .part -> final destination.
+	// Rename .part -> final destination.
 	if err := os.Rename(partPath, destPath); err != nil {
 		return fmt.Errorf("rename part file: %w", err)
 	}

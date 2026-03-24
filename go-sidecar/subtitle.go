@@ -130,9 +130,10 @@ func DeriveTranscriptionLogPath(inputVideo string) string {
 	return base + ".transcription.txt"
 }
 
-// WriteTranscriptionLog writes the raw transcription segments to a timestamped .txt file
-// for diagnostic purposes (RCA: transcription vs translation quality).
-func WriteTranscriptionLog(segments []Segment, outputPath string, detectedLang string) error {
+// WriteTranscriptionLog writes the raw transcription segments (with their start/end
+// timestamps) to a .txt file for diagnostic purposes (root-cause analysis of
+// transcription vs. translation quality issues).
+func WriteTranscriptionLog(segments []Segment, outputPath string, sourceLang string) error {
 	dir := filepath.Dir(outputPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
@@ -144,7 +145,7 @@ func WriteTranscriptionLog(segments []Segment, outputPath string, detectedLang s
 	}
 	defer f.Close()
 
-	fmt.Fprintf(f, "# Transcription (detected language: %s)\n\n", detectedLang)
+	fmt.Fprintf(f, "# Transcription (source language: %s)\n\n", sourceLang)
 
 	for _, seg := range segments {
 		start := formatTimestamp(seg.Start)
