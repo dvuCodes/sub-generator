@@ -243,7 +243,9 @@ func buildWhisperCommand(binaryPath, modelPath, vadModelPath string, port int, v
 		"-m", modelPath,
 		"--port", fmt.Sprintf("%d", port),
 		"--convert",
-		"--no-flash-attn",
+	}
+	if detectGPU() == "none" {
+		args = append(args, "--no-flash-attn")
 	}
 	if vadModelPath != "" {
 		args = append(args, "--vad-model", vadModelPath)
