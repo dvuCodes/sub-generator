@@ -74,10 +74,21 @@ type LanguagesResponse struct {
 }
 
 type SystemInfoResponse struct {
-	Type           string `json:"type"`
-	WhisperServer  bool   `json:"whisper_server"`
-	LibreTranslate bool   `json:"libretranslate"`
-	GPU            string `json:"gpu"`
+	Type              string `json:"type"`
+	WhisperServer     bool   `json:"whisper_server"`
+	TranslationEngine bool   `json:"translation_engine"`
+	GPU               string `json:"gpu"`
+}
+
+type VRAMInfo struct {
+	TotalMiB int `json:"total_mib"`
+	UsedMiB  int `json:"used_mib"`
+	FreeMiB  int `json:"free_mib"`
+}
+
+type VramInfoResponse struct {
+	Type string    `json:"type"`
+	Vram *VRAMInfo `json:"vram"`
 }
 
 // --- Transcription Types ---
@@ -101,7 +112,7 @@ type ServiceConfig struct {
 	WhisperServerPath  string
 	WhisperModelPath   string
 	WhisperPort        int
-	LibreTranslatePort int
+	LlamaServerPort    int
 }
 
 func DefaultServiceConfig() ServiceConfig {
@@ -120,11 +131,11 @@ func resolveServiceConfig(roots ...string) ServiceConfig {
 	whisperBinary, whisperModel := resolveWhisperAssets(searchRoots, "base")
 
 	return ServiceConfig{
-		SearchRoots:        searchRoots,
-		WhisperServerPath:  whisperBinary,
-		WhisperModelPath:   whisperModel,
-		WhisperPort:        8080,
-		LibreTranslatePort: 5000,
+		SearchRoots:       searchRoots,
+		WhisperServerPath: whisperBinary,
+		WhisperModelPath:  whisperModel,
+		WhisperPort:       8080,
+		LlamaServerPort:   8081,
 	}
 }
 
@@ -257,4 +268,72 @@ func firstExistingPath(paths ...string) string {
 		}
 	}
 	return ""
+}
+
+// --- llama-server resolution (mirrors whisper-server pattern) ---
+
+const gemmaModelFilenameConst = "GemmaTranslate-v3-12B.i1-Q4_K_S.gguf"
+
+func llamaExecutableName() string {
+	if os.PathSeparator == '\\' {
+		return "llama-server.exe"
+	}
+	return "llama-server"
+}
+
+func llamaExecutableCandidates() []string {
+	primary := llamaExecutableName()
+	alternate := "llama-server"
+	if primary == alternate {
+		alternate = "llama-server.exe"
+	}
+	return []string{primary, alternate}
+}
+
+func resolveLlamaServerBinary(searchRoots []string) string {
+	roots := normalizeSearchRoots(searchRoots)
+	executableNames := llamaExecutableCandidates()
+	candidates := make([]string, 0, len(roots)*len(executableNames)*2)
+
+	for _, root := range roots {
+		for _, name := range executableNames {
+			candidates = append(candidates,
+				filepath.Join(root, "services", "llama-server", name),
+				filepath.Join(root, name),
+			)
+		}
+	}
+
+	path := firstExistingPath(candidates...)
+	if path == "" {
+		return "llama-server"
+	}
+	return path
+}
+
+func resolveGemmaModelPath(searchRoots []string) string {
+	roots := normalizeSearchRoots(searchRoots)
+	candidates := make([]string, 0, len(roots)*2)
+	for _, root := range roots {
+		candidates = append(candidates,
+			filepath.Join(root, "services", "llama-server", "models", gemmaModelFilenameConst),
+			filepath.Join(root, "models", gemmaModelFilenameConst),
+		)
+	}
+	return firstExistingPath(candidates...)
+}
+
+func preferredLlamaInstallDir(searchRoots []string) string {
+	for _, root := range normalizeSearchRoots(searchRoots) {
+		candidate := filepath.Join(root, "services", "llama-server")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+
+	if len(searchRoots) > 0 {
+		return filepath.Join(searchRoots[0], "services", "llama-server")
+	}
+
+	return filepath.Join("services", "llama-server")
 }
