@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,5 +60,25 @@ func TestNormalizeWhisperStartupErrorReturnsSetupGuidanceForPathFailure(t *testi
 		if !strings.Contains(message, fragment) {
 			t.Fatalf("normalizeWhisperStartupError() error %q missing %q", err.Error(), fragment)
 		}
+	}
+}
+
+func TestShouldReuseManagedLlamaProcessRequiresTrackedProcess(t *testing.T) {
+	if shouldReuseManagedLlamaProcess(nil, "gemma.gguf", "gemma.gguf", true) {
+		t.Fatal("shouldReuseManagedLlamaProcess() = true, want false for untracked healthy service")
+	}
+}
+
+func TestShouldReuseManagedLlamaProcessRequiresMatchingModelAndHealth(t *testing.T) {
+	process := &os.Process{Pid: 1234}
+
+	if !shouldReuseManagedLlamaProcess(process, "gemma.gguf", "gemma.gguf", true) {
+		t.Fatal("shouldReuseManagedLlamaProcess() = false, want true for matching managed process")
+	}
+	if shouldReuseManagedLlamaProcess(process, "other.gguf", "gemma.gguf", true) {
+		t.Fatal("shouldReuseManagedLlamaProcess() = true, want false for mismatched model")
+	}
+	if shouldReuseManagedLlamaProcess(process, "gemma.gguf", "gemma.gguf", false) {
+		t.Fatal("shouldReuseManagedLlamaProcess() = true, want false for unhealthy process")
 	}
 }
