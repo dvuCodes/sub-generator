@@ -18,11 +18,24 @@ src-tauri/subgen-sidecar-*.exe
 
 # Services (binaries and models - download locally)
 services/whisper-server/*.exe
+services/whisper-server/*.dll
 services/whisper-server/*.bin
 services/whisper-server/models/
+services/whisper-server/Release/
+services/whisper-server-cpu-backup/
 services/llama-server/*.exe
+services/llama-server/*.dll
 services/llama-server/*.bin
 services/llama-server/models/*.gguf
+
+# Go build artifacts
+go-sidecar/*.exe
+
+# Superpowers local state
+.superpowers/
+
+# Temp audio files
+src-tauri/*.wav
 
 # Python
 __pycache__/

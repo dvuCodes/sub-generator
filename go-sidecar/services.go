@@ -133,13 +133,11 @@ func (sm *ServiceManager) StartLlamaServer() error {
 	currentModel := sm.currentLlamaModelPath
 	sm.mu.Unlock()
 
-	if currentProcess != nil {
-		if currentModel == gemmaModel && sm.IsLlamaServerRunning() {
-			return nil
-		}
-		sm.StopLlamaServer()
-	} else if sm.IsLlamaServerRunning() {
+	if shouldReuseManagedLlamaProcess(currentProcess, currentModel, gemmaModel, sm.IsLlamaServerRunning()) {
 		return nil
+	}
+	if currentProcess != nil {
+		sm.StopLlamaServer()
 	}
 
 	if err := validateCommandAvailability(llamaBinary, "llama-server"); err != nil {
@@ -274,7 +272,9 @@ func buildLlamaCommand(binaryPath, modelPath string, port int) *exec.Cmd {
 		"--n-gpu-layers", gpuLayers,
 		"--ctx-size", "512",
 	}
-	return exec.Command(binaryPath, args...)
+	cmd := exec.Command(binaryPath, args...)
+	cmd.Dir = filepath.Dir(binaryPath)
+	return cmd
 }
 
 func vadParamsEqual(a, b *VADParams) bool {
@@ -285,6 +285,10 @@ func vadParamsEqual(a, b *VADParams) bool {
 		return false
 	}
 	return *a == *b
+}
+
+func shouldReuseManagedLlamaProcess(currentProcess *os.Process, currentModel string, expectedModel string, healthy bool) bool {
+	return currentProcess != nil && currentModel == expectedModel && healthy
 }
 
 func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) error {
