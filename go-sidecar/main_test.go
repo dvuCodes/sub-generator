@@ -1,12 +1,6 @@
 package main
 
-import (
-	"io"
-	"os"
-	"runtime"
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestListAvailableLanguagesReturnsStaticPairs(t *testing.T) {
 	langs, err := listAvailableLanguages()
@@ -36,33 +30,42 @@ func TestLocalServiceBaseURLUsesIPv4Loopback(t *testing.T) {
 	}
 }
 
-func TestHandleCommandGenerateRunsSynchronously(t *testing.T) {
-	oldProcs := runtime.GOMAXPROCS(1)
+func TestHandleCommandGenerateRunsAsynchronously(t *testing.T) {
+	originalRunGenerate := runGenerate
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+
+	runGenerate = func(_ *Pipeline, _ Command) {
+		close(started)
+		<-release
+		close(done)
+	}
 	t.Cleanup(func() {
-		runtime.GOMAXPROCS(oldProcs)
+		runGenerate = originalRunGenerate
 	})
 
-	originalStdout := os.Stdout
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe() error = %v", err)
-	}
-	os.Stdout = writer
-	t.Cleanup(func() {
-		os.Stdout = originalStdout
-	})
+	returned := make(chan struct{})
+	go func() {
+		handleCommand(Command{Command: "generate"}, &Pipeline{}, nil)
+		close(returned)
+	}()
 
-	handleCommand(Command{Command: "generate"}, &Pipeline{}, nil)
+	<-started
 
-	os.Stdout = originalStdout
-	_ = writer.Close()
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatalf("ReadAll() error = %v", err)
+	select {
+	case <-returned:
+		// handleCommand should return before generate finishes.
+	default:
+		t.Fatal("handleCommand(generate) blocked until the pipeline finished")
 	}
 
-	if !strings.Contains(string(data), `"message":"Validation failed"`) {
-		t.Fatalf("handleCommand(generate) should emit validation failure before returning, got %q", string(data))
+	select {
+	case <-done:
+		t.Fatal("generate runner finished before the test released it")
+	default:
 	}
+
+	close(release)
+	<-done
 }

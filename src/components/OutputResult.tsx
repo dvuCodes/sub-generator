@@ -7,6 +7,7 @@ import {
   FolderOpenIcon,
   RefreshIcon,
 } from "@hugeicons/core-free-icons";
+import { deriveOutputDirectory, explorerOpenTarget } from "@/lib/outputPath";
 
 interface OutputResultProps {
   outputPath: string;
@@ -24,16 +25,12 @@ export function OutputResult({
   onReset,
 }: OutputResultProps) {
   const fileName = outputPath.split(/[/\\]/).pop() ?? outputPath;
-  const dir = outputPath.substring(
-    0,
-    outputPath.length - (fileName?.length ?? 0) - 1
-  );
+  const dir = deriveOutputDirectory(outputPath);
 
   const openInExplorer = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-shell");
-      const fileUrl = `file:///${dir.replace(/\\/g, "/")}`;
-      await open(fileUrl);
+      await open(explorerOpenTarget(outputPath));
     } catch (err) {
       console.error("Failed to open directory:", err);
     }

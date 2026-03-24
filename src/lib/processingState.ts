@@ -1,5 +1,14 @@
 import type { ProgressResponse, StageResponse } from "./types";
 
+const STAGE_ORDER = [
+  "validating",
+  "downloading_model",
+  "starting_services",
+  "transcribing",
+  "translating",
+  "writing",
+] as const;
+
 export interface ProcessingState {
   stage: string;
   percent: number | null;
@@ -22,9 +31,11 @@ export function advanceProcessingState(
   current: ProcessingState,
   response: ProgressResponse | StageResponse
 ): ProcessingState {
+  const stage = resolveStage(current.stage, response.stage);
+
   if (response.type === "progress") {
     return {
-      stage: response.stage,
+      stage,
       percent: clampPercent(response.percent),
       message: response.message,
       elapsedSecs: response.elapsed_secs ?? null,
@@ -33,8 +44,8 @@ export function advanceProcessingState(
   }
 
   return {
-    stage: response.stage,
-    percent: current.stage === response.stage ? current.percent : null,
+    stage,
+    percent: current.stage === stage ? current.percent : null,
     message: response.message,
     elapsedSecs: null,
     etaSecs: null,
@@ -43,4 +54,17 @@ export function advanceProcessingState(
 
 function clampPercent(percent: number) {
   return Math.max(0, Math.min(percent, 100));
+}
+
+function resolveStage(currentStage: string, nextStage: string) {
+  const currentIndex = STAGE_ORDER.indexOf(
+    currentStage as (typeof STAGE_ORDER)[number]
+  );
+  const nextIndex = STAGE_ORDER.indexOf(nextStage as (typeof STAGE_ORDER)[number]);
+
+  if (currentIndex >= 0 && nextIndex >= 0 && nextIndex < currentIndex) {
+    return currentStage;
+  }
+
+  return nextStage;
 }
