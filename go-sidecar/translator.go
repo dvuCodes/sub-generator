@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -122,32 +124,19 @@ func supportsTranslationPair(sourceLang, targetLang string) bool {
 	return srcOK && tgtOK && sourceLang != targetLang
 }
 
-func buildTranslationPrompt(text, sourceLang, targetLang string) string {
-	sourceName := gemmaLanguages[sourceLang]
-	targetName := gemmaLanguages[targetLang]
+// --- Shared HTTP helper ---
 
-	if sourceName == "" {
-		sourceName = sourceLang
+// sendChatCompletion sends a [system, user] chat completion request to llama-server.
+// If systemPrompt is empty, only the user message is sent.
+func (t *Translator) sendChatCompletion(systemPrompt, userPrompt string) (string, error) {
+	var messages []chatMessage
+	if systemPrompt != "" {
+		messages = append(messages, chatMessage{Role: "system", Content: systemPrompt})
 	}
-	if targetName == "" {
-		targetName = targetLang
-	}
-
-	return fmt.Sprintf(
-		"Translate the following text from %s to %s. Output only the translation, nothing else.\n\n%s",
-		sourceName,
-		targetName,
-		text,
-	)
-}
-
-func (t *Translator) Translate(text, sourceLang, targetLang string) (string, error) {
-	prompt := buildTranslationPrompt(text, sourceLang, targetLang)
+	messages = append(messages, chatMessage{Role: "user", Content: userPrompt})
 
 	reqBody := chatCompletionRequest{
-		Messages: []chatMessage{
-			{Role: "user", Content: prompt},
-		},
+		Messages:    messages,
 		Temperature: 0.1,
 	}
 
@@ -183,61 +172,262 @@ func (t *Translator) Translate(text, sourceLang, targetLang string) (string, err
 	return strings.TrimSpace(result.Choices[0].Message.Content), nil
 }
 
-func (t *Translator) TranslateSegments(segments []Segment, sourceLang, targetLang string, onProgress func(current, total int)) ([]Segment, error) {
-	total := len(segments)
-	translated := make([]Segment, total)
+// --- Language name resolution ---
 
-	sem := make(chan struct{}, t.maxWorkers)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	var firstErr error
-	completed := 0
-
-	for i, seg := range segments {
-		wg.Add(1)
-		go func(idx int, s Segment) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			mu.Lock()
-			if firstErr != nil {
-				mu.Unlock()
-				return
-			}
-			mu.Unlock()
-
-			result, err := t.Translate(s.Text, sourceLang, targetLang)
-
-			mu.Lock()
-			defer mu.Unlock()
-
-			if err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("segment %d: %w", idx, err)
-				return
-			}
-
-			translated[idx] = Segment{
-				Start: s.Start,
-				End:   s.End,
-				Text:  result,
-			}
-			completed++
-
-			if onProgress != nil {
-				onProgress(completed, total)
-			}
-		}(i, seg)
+func resolveLanguageName(langCode string) string {
+	if langCode == "" || langCode == "auto" {
+		return "the source language"
 	}
-
-	wg.Wait()
-
-	if firstErr != nil {
-		return nil, firstErr
+	if name, ok := gemmaLanguages[langCode]; ok {
+		return name
 	}
-
-	return translated, nil
+	return langCode
 }
+
+// --- Single-segment translation ---
+
+func buildTranslationPrompt(text, sourceLang, targetLang string) string {
+	sourceName := resolveLanguageName(sourceLang)
+	targetName := resolveLanguageName(targetLang)
+
+	return fmt.Sprintf(
+		"Translate the following text from %s to %s. Output only the translation, nothing else.\n\n%s",
+		sourceName,
+		targetName,
+		text,
+	)
+}
+
+func (t *Translator) Translate(text, sourceLang, targetLang string) (string, error) {
+	prompt := buildTranslationPrompt(text, sourceLang, targetLang)
+	return t.sendChatCompletion("", prompt)
+}
+
+// --- Contextual block translation ---
+
+const maxHistoryLines = 4
+
+func contextualSystemPrompt(sourceLang, targetLang string) string {
+	sourceName := resolveLanguageName(sourceLang)
+	targetName := resolveLanguageName(targetLang)
+
+	prompt := fmt.Sprintf(`You are a professional subtitle translator. Translate dialogue from %s to %s.
+
+RULES:
+1. Translate each numbered line separately. Output exactly the same number of numbered lines.
+2. Use the conversation context and history to resolve omitted subjects and pronouns.
+3. Preserve the speaker's tone and register.
+4. Output ONLY the numbered translations in [1], [2], ... format. No explanations or notes.`, sourceName, targetName)
+
+	if sourceLang == "ja" {
+		prompt += `
+
+ADDITIONAL RULES FOR JAPANESE:
+- Japanese frequently omits subjects (I, you, he/she). Use surrounding context to determine the correct subject.
+- Preserve honorifics when they carry meaning that would be lost (-san, -sama, -kun, -chan, senpai).
+- Translate sentence-final particles (よ, ね, わ, ぞ, etc.) into natural phrasing that conveys the same nuance.
+- Maintain speech register differences (keigo vs casual vs rough).`
+	}
+
+	return prompt
+}
+
+func buildContextualUserPrompt(block ContextBlock, history []string) string {
+	var sb strings.Builder
+
+	if len(history) > 0 {
+		sb.WriteString("PREVIOUS CONTEXT (for reference, do not re-translate):\n")
+		for _, line := range history {
+			sb.WriteString("> ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("TRANSLATE THE FOLLOWING:\n")
+	for i, seg := range block.Segments {
+		sb.WriteString(fmt.Sprintf("[%d] %s\n", i+1, seg.Text))
+	}
+
+	return sb.String()
+}
+
+func buildStricterUserPrompt(block ContextBlock, history []string) string {
+	var sb strings.Builder
+
+	if len(history) > 0 {
+		sb.WriteString("PREVIOUS CONTEXT (for reference, do not re-translate):\n")
+		for _, line := range history {
+			sb.WriteString("> ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("TRANSLATE THE FOLLOWING (output EXACTLY %d lines, each starting with [N]):\n", len(block.Segments)))
+	for i, seg := range block.Segments {
+		sb.WriteString(fmt.Sprintf("[%d] %s\n", i+1, seg.Text))
+	}
+
+	return sb.String()
+}
+
+// --- Strict response parser ---
+
+var numberedLineRe = regexp.MustCompile(`^\[(\d+)\]\s?(.*)$`)
+
+func parseBlockTranslation(response string, expectedCount int) ([]string, error) {
+	lines := strings.Split(strings.TrimSpace(response), "\n")
+
+	translations := make([]string, expectedCount)
+	seen := make(map[int]bool)
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		m := numberedLineRe.FindStringSubmatch(trimmed)
+		if m == nil {
+			return nil, fmt.Errorf("line does not match [N] format: %q", trimmed)
+		}
+
+		idx, err := strconv.Atoi(m[1])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse index from %q: %w", trimmed, err)
+		}
+
+		if idx < 1 || idx > expectedCount {
+			return nil, fmt.Errorf("index %d out of range [1..%d]", idx, expectedCount)
+		}
+
+		if seen[idx] {
+			return nil, fmt.Errorf("duplicate index %d", idx)
+		}
+		seen[idx] = true
+
+		translations[idx-1] = strings.TrimSpace(m[2])
+	}
+
+	if len(seen) != expectedCount {
+		missing := []int{}
+		for i := 1; i <= expectedCount; i++ {
+			if !seen[i] {
+				missing = append(missing, i)
+			}
+		}
+		return nil, fmt.Errorf("missing indices: %v (got %d of %d)", missing, len(seen), expectedCount)
+	}
+
+	return translations, nil
+}
+
+// --- Block translation with retry/fallback ---
+
+func (t *Translator) TranslateBlocks(
+	blocks []ContextBlock,
+	sourceLang, targetLang string,
+	onProgress func(current, total int),
+) ([]Segment, error) {
+	totalSegments := 0
+	for _, b := range blocks {
+		totalSegments += len(b.Segments)
+	}
+
+	var allSegments []Segment
+	var history []string
+	completedSegments := 0
+
+	sysPrompt := contextualSystemPrompt(sourceLang, targetLang)
+
+	for blockIdx, block := range blocks {
+		translations, err := t.translateBlockWithRetry(sysPrompt, block, history)
+
+		if err != nil {
+			// Fallback: translate each segment individually
+			fmt.Fprintf(os.Stderr, "warning: context-aware translation failed for block %d (segments %d-%d), falling back to per-segment translation: %v\n",
+				blockIdx, completedSegments+1, completedSegments+len(block.Segments), err)
+
+			translations = make([]string, len(block.Segments))
+			for i, seg := range block.Segments {
+				result, translateErr := t.Translate(seg.Text, sourceLang, targetLang)
+				if translateErr != nil {
+					return nil, fmt.Errorf("fallback translation failed for segment %d: %w", completedSegments+i, translateErr)
+				}
+				translations[i] = result
+			}
+		}
+
+		for i, seg := range block.Segments {
+			allSegments = append(allSegments, Segment{
+				Start: seg.Start,
+				End:   seg.End,
+				Text:  translations[i],
+			})
+		}
+
+		// Update rolling history with the translations actually emitted
+		for _, tr := range translations {
+			history = append(history, tr)
+		}
+		if len(history) > maxHistoryLines {
+			history = history[len(history)-maxHistoryLines:]
+		}
+
+		completedSegments += len(block.Segments)
+		if onProgress != nil {
+			onProgress(completedSegments, totalSegments)
+		}
+	}
+
+	return allSegments, nil
+}
+
+func (t *Translator) translateBlockWithRetry(sysPrompt string, block ContextBlock, history []string) ([]string, error) {
+	expectedCount := len(block.Segments)
+
+	// First attempt
+	userPrompt := buildContextualUserPrompt(block, history)
+	response, err := t.sendChatCompletion(sysPrompt, userPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("block translation request failed: %w", err)
+	}
+
+	translations, parseErr := parseBlockTranslation(response, expectedCount)
+	if parseErr == nil {
+		return translations, nil
+	}
+
+	// Retry with stricter formatting instruction (fresh attempt, no reference to bad output)
+	fmt.Fprintf(os.Stderr, "warning: block translation parse failed (%v), retrying with stricter formatting\n", parseErr)
+
+	stricterPrompt := buildStricterUserPrompt(block, history)
+	response, err = t.sendChatCompletion(sysPrompt, stricterPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("retry translation request failed: %w", err)
+	}
+
+	translations, parseErr = parseBlockTranslation(response, expectedCount)
+	if parseErr != nil {
+		return nil, fmt.Errorf("retry parse also failed: %w", parseErr)
+	}
+
+	return translations, nil
+}
+
+// --- TranslateSegments (stable wrapper) ---
+
+func (t *Translator) TranslateSegments(segments []Segment, sourceLang, targetLang string, onProgress func(current, total int)) ([]Segment, error) {
+	blocks := StitchSegments(segments, DefaultStitcherConfig())
+	fmt.Fprintf(os.Stderr, "stitched %d segments into %d context blocks\n", len(segments), len(blocks))
+
+	return t.TranslateBlocks(blocks, sourceLang, targetLang, onProgress)
+}
+
+// --- Language pairs ---
 
 func (t *Translator) ListLanguages() ([]LanguagePair, error) {
 	return StaticLanguagePairs(), nil
