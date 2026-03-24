@@ -231,7 +231,7 @@ func TestWriteTranscriptionLog(t *testing.T) {
 
 	text := string(content)
 
-	if !strings.Contains(text, "# Transcription (detected language: en)") {
+	if !strings.Contains(text, "# Transcription (source language: en)") {
 		t.Error("Missing header line")
 	}
 	if !strings.Contains(text, "[00:00:00.000 --> 00:00:02.500] Hello world") {
@@ -239,6 +239,31 @@ func TestWriteTranscriptionLog(t *testing.T) {
 	}
 	if !strings.Contains(text, "[00:01:03.500 --> 00:01:05.000] Second segment") {
 		t.Errorf("Missing or malformed second segment, got:\n%s", text)
+	}
+}
+
+func TestWriteTranscriptionLogEmptySegments(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test.transcription.txt")
+
+	err := WriteTranscriptionLog([]Segment{}, outPath, "en")
+	if err != nil {
+		t.Fatalf("WriteTranscriptionLog() error: %v", err)
+	}
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, "# Transcription (source language: en)") {
+		t.Error("Missing header line for empty segments")
+	}
+	// Should only have header + blank line, no segment lines
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	if len(lines) != 1 {
+		t.Errorf("Expected 1 line (header only) for empty segments, got %d lines", len(lines))
 	}
 }
 
@@ -263,7 +288,7 @@ func TestWriteTranscriptionLogCJK(t *testing.T) {
 
 	text := string(content)
 
-	if !strings.Contains(text, "detected language: ja") {
+	if !strings.Contains(text, "source language: ja") {
 		t.Error("Missing Japanese language in header")
 	}
 	if !strings.Contains(text, "こんにちは世界") {
