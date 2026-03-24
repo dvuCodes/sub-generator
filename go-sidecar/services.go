@@ -18,6 +18,7 @@ type ServiceManager struct {
 	whisperProcess          *os.Process
 	currentWhisperModelPath string
 	currentVADModelPath     string
+	currentVADParams        *VADParams
 	ltProcess               *os.Process
 	mu                      sync.Mutex
 }
@@ -27,7 +28,7 @@ func NewServiceManager(config ServiceConfig) *ServiceManager {
 }
 
 func (sm *ServiceManager) StartAll() error {
-	if err := sm.StartWhisperServer("base"); err != nil {
+	if err := sm.StartWhisperServer("base", nil); err != nil {
 		return fmt.Errorf("whisper-server: %w", err)
 	}
 	if err := sm.StartLibreTranslate(); err != nil {
@@ -41,7 +42,7 @@ func (sm *ServiceManager) StopAll() {
 	sm.StopLibreTranslate()
 }
 
-func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
+func (sm *ServiceManager) StartWhisperServer(modelSize string, vadParams *VADParams) error {
 	whisperBinary, whisperModel := resolveWhisperAssets(sm.config.SearchRoots, modelSize)
 	vadModel := resolveVADModelPath(sm.config.SearchRoots)
 
@@ -49,10 +50,11 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 	currentProcess := sm.whisperProcess
 	currentModel := sm.currentWhisperModelPath
 	currentVAD := sm.currentVADModelPath
+	currentParams := sm.currentVADParams
 	sm.mu.Unlock()
 
 	if currentProcess != nil {
-		if currentModel == whisperModel && currentVAD == vadModel && sm.IsWhisperRunning() {
+		if currentModel == whisperModel && currentVAD == vadModel && vadParamsEqual(currentParams, vadParams) && sm.IsWhisperRunning() {
 			return nil
 		}
 		sm.StopWhisperServer()
@@ -72,7 +74,7 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 		fmt.Fprintf(os.Stderr, "warning: VAD model not found in search roots; whisper-server will start without VAD support\n")
 	}
 
-	cmd := buildWhisperCommand(whisperBinary, whisperModel, vadModel, sm.config.WhisperPort)
+	cmd := buildWhisperCommand(whisperBinary, whisperModel, vadModel, sm.config.WhisperPort, vadParams)
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
@@ -88,6 +90,7 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 	sm.whisperProcess = cmd.Process
 	sm.currentWhisperModelPath = whisperModel
 	sm.currentVADModelPath = vadModel
+	sm.currentVADParams = vadParams
 	sm.config.WhisperServerPath = whisperBinary
 	sm.config.WhisperModelPath = whisperModel
 	sm.mu.Unlock()
@@ -117,6 +120,7 @@ func (sm *ServiceManager) stopWhisperServerLocked() {
 	}
 	sm.currentWhisperModelPath = ""
 	sm.currentVADModelPath = ""
+	sm.currentVADParams = nil
 }
 
 func (sm *ServiceManager) StartLibreTranslate() error {
@@ -220,7 +224,7 @@ func runCommand(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func buildWhisperCommand(binaryPath, modelPath, vadModelPath string, port int) *exec.Cmd {
+func buildWhisperCommand(binaryPath, modelPath, vadModelPath string, port int, vadParams *VADParams) *exec.Cmd {
 	args := []string{
 		"-m", modelPath,
 		"--port", fmt.Sprintf("%d", port),
@@ -230,7 +234,26 @@ func buildWhisperCommand(binaryPath, modelPath, vadModelPath string, port int) *
 	if vadModelPath != "" {
 		args = append(args, "--vad-model", vadModelPath)
 	}
+	if vadParams != nil {
+		args = append(args, "--vad-threshold", fmt.Sprintf("%.2f", vadParams.Threshold))
+		args = append(args, "--vad-min-speech-duration-ms", fmt.Sprintf("%d", vadParams.MinSpeechDurationMs))
+		args = append(args, "--vad-min-silence-duration-ms", fmt.Sprintf("%d", vadParams.MinSilenceDurationMs))
+		if vadParams.MaxSpeechDurationS > 0 {
+			args = append(args, "--vad-max-speech-duration-s", fmt.Sprintf("%.1f", vadParams.MaxSpeechDurationS))
+		}
+		args = append(args, "--vad-speech-pad-ms", fmt.Sprintf("%d", vadParams.SpeechPadMs))
+	}
 	return exec.Command(binaryPath, args...)
+}
+
+func vadParamsEqual(a, b *VADParams) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) error {

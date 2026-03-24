@@ -8,16 +8,25 @@ import (
 
 // --- IPC Command Types (received from Tauri via stdin) ---
 
+type VADParams struct {
+	Threshold            float64 `json:"vad_threshold"`
+	MinSpeechDurationMs  int     `json:"vad_min_speech_duration_ms"`
+	MinSilenceDurationMs int     `json:"vad_min_silence_duration_ms"`
+	MaxSpeechDurationS   float64 `json:"vad_max_speech_duration_s"`
+	SpeechPadMs          int     `json:"vad_speech_pad_ms"`
+}
+
 type Command struct {
-	Command      string  `json:"command"`
-	InputVideo   string  `json:"input_video,omitempty"`
-	SourceLang   *string `json:"source_lang,omitempty"`
-	TargetLang   *string `json:"target_lang,omitempty"`
-	OutputFormat string  `json:"output_format,omitempty"`
-	OutputPath   *string `json:"output_path,omitempty"`
-	ModelSize    string  `json:"model_size,omitempty"`
-	BeamSize     int     `json:"beam_size,omitempty"`
-	VADFilter    bool    `json:"vad_filter,omitempty"`
+	Command      string     `json:"command"`
+	InputVideo   string     `json:"input_video,omitempty"`
+	SourceLang   *string    `json:"source_lang,omitempty"`
+	TargetLang   *string    `json:"target_lang,omitempty"`
+	OutputFormat string     `json:"output_format,omitempty"`
+	OutputPath   *string    `json:"output_path,omitempty"`
+	ModelSize    string     `json:"model_size,omitempty"`
+	BeamSize     int        `json:"beam_size,omitempty"`
+	VADFilter    bool       `json:"vad_filter,omitempty"`
+	VADParams    *VADParams `json:"vad_params,omitempty"`
 	// install_language fields
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
