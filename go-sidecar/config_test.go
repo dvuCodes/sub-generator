@@ -162,3 +162,70 @@ func TestDefaultServiceConfig(t *testing.T) {
 		t.Errorf("LlamaServerPort = %d, want 8081", config.LlamaServerPort)
 	}
 }
+
+func TestAudioConfig_Defaults(t *testing.T) {
+	cfg := DefaultAudioConfig()
+
+	if !cfg.Enabled {
+		t.Error("expected Enabled to be true")
+	}
+	if cfg.VocalBoostDB != 3 {
+		t.Errorf("expected VocalBoostDB=3, got %g", cfg.VocalBoostDB)
+	}
+	if !cfg.NoiseGate {
+		t.Error("expected NoiseGate to be true")
+	}
+	if !cfg.Normalize {
+		t.Error("expected Normalize to be true")
+	}
+}
+
+func TestAudioConfig_Deserialize(t *testing.T) {
+	input := `{
+		"command": "generate",
+		"input_video": "test.mkv",
+		"model_size": "base",
+		"beam_size": 5,
+		"vad_filter": true,
+		"audio_config": {
+			"enabled": true,
+			"vocal_boost_db": 4,
+			"noise_gate": false,
+			"normalize": true
+		}
+	}`
+
+	var cmd Command
+	if err := json.Unmarshal([]byte(input), &cmd); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if !cmd.AudioConfig.Enabled {
+		t.Error("expected AudioConfig.Enabled=true")
+	}
+	if cmd.AudioConfig.VocalBoostDB != 4 {
+		t.Errorf("expected VocalBoostDB=4, got %g", cmd.AudioConfig.VocalBoostDB)
+	}
+	if cmd.AudioConfig.NoiseGate {
+		t.Error("expected AudioConfig.NoiseGate=false")
+	}
+	if !cmd.AudioConfig.Normalize {
+		t.Error("expected AudioConfig.Normalize=true")
+	}
+}
+
+func TestAudioConfig_DeserializeMissing(t *testing.T) {
+	input := `{
+		"command": "generate",
+		"input_video": "test.mkv"
+	}`
+
+	var cmd Command
+	if err := json.Unmarshal([]byte(input), &cmd); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if cmd.AudioConfig.Enabled {
+		t.Error("expected zero-value Enabled=false when missing from JSON")
+	}
+}
