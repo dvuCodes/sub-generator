@@ -79,7 +79,75 @@ func TestBuildFilterChain_SubTogglesOff(t *testing.T) {
 	}
 }
 
-// Ensure os, exec, and filepath imports are used (needed by Task 3 tests).
-var _ = os.DevNull
-var _ = exec.LookPath
-var _ = filepath.Join
+func TestPreprocessAudio_InvalidFile(t *testing.T) {
+	cfg := DefaultAudioConfig()
+	_, err := PreprocessAudio("/nonexistent/file.mp4", cfg)
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestPreprocessAudio_ValidVideo(t *testing.T) {
+	// Generate a short test video with FFmpeg (2 seconds of sine wave)
+	tmpDir := t.TempDir()
+	testVideo := filepath.Join(tmpDir, "test.mkv")
+	cmd := exec.Command("ffmpeg",
+		"-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+		"-f", "lavfi", "-i", "color=c=black:s=320x240:d=2",
+		"-shortest", "-y", testVideo,
+	)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("ffmpeg not available or failed to create test video: %v", err)
+	}
+
+	cfg := DefaultAudioConfig()
+	wavPath, err := PreprocessAudio(testVideo, cfg)
+	if err != nil {
+		t.Fatalf("PreprocessAudio failed: %v", err)
+	}
+	defer cleanupPreprocessed(wavPath)
+
+	// Verify output exists and is non-empty
+	info, err := os.Stat(wavPath)
+	if err != nil {
+		t.Fatalf("output WAV not found: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Error("output WAV is empty")
+	}
+	if !strings.HasSuffix(wavPath, "-enhanced.wav") {
+		t.Errorf("expected WAV filename to end with -enhanced.wav, got %q", wavPath)
+	}
+}
+
+func TestPreprocessAudio_NoAudioStream(t *testing.T) {
+	// Generate a video with no audio
+	tmpDir := t.TempDir()
+	testVideo := filepath.Join(tmpDir, "no-audio.mkv")
+	cmd := exec.Command("ffmpeg",
+		"-f", "lavfi", "-i", "color=c=black:s=320x240:d=2",
+		"-an", "-y", testVideo,
+	)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("ffmpeg not available or failed to create test video: %v", err)
+	}
+
+	cfg := DefaultAudioConfig()
+	_, err := PreprocessAudio(testVideo, cfg)
+	if err == nil {
+		t.Fatal("expected error for video with no audio stream")
+	}
+}
+
+func TestPreprocessAudio_Cleanup(t *testing.T) {
+	tmpDir := os.TempDir()
+	testFile := filepath.Join(tmpDir, "sub-generator-audio", "test-cleanup.wav")
+	os.MkdirAll(filepath.Dir(testFile), 0o755)
+	os.WriteFile(testFile, []byte("dummy"), 0o644)
+
+	cleanupPreprocessed(testFile)
+
+	if _, err := os.Stat(testFile); !os.IsNotExist(err) {
+		t.Errorf("expected file to be deleted, but it still exists")
+	}
+}
