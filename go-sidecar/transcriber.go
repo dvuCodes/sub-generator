@@ -180,7 +180,7 @@ func newInferenceRequest(
 		cleanup()
 		return nil, "", nil, fmt.Errorf("failed to write response_format: %w", err)
 	}
-	if err := writer.WriteField("temperature", "0"); err != nil {
+	if err := writer.WriteField("temperature", "0.0,0.2,0.4,0.6,0.8,1.0"); err != nil {
 		cleanup()
 		return nil, "", nil, fmt.Errorf("failed to write temperature: %w", err)
 	}

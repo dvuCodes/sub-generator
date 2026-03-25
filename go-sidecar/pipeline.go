@@ -116,7 +116,26 @@ func (p *Pipeline) Run(cmd Command) {
 		return
 	}
 
-	// Step 4: Transcribe
+	// Step 4: Preprocess audio (if enabled)
+	transcribePath := cmd.InputVideo
+	audioConfig := cmd.AudioConfig
+	if !audioConfig.Enabled && audioConfig.VocalBoostDB == 0 && !audioConfig.NoiseGate && !audioConfig.Normalize {
+		audioConfig = DefaultAudioConfig()
+	}
+
+	if audioConfig.Enabled {
+		sendStage("preprocessing", "Enhancing audio for transcription...")
+		preprocessedPath, preprocessErr := PreprocessAudio(cmd.InputVideo, audioConfig)
+		if preprocessErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: audio preprocessing failed, falling back to raw upload: %v\n", preprocessErr)
+			sendStage("preprocessing", "Audio enhancement skipped, using original audio")
+		} else {
+			transcribePath = preprocessedPath
+			defer cleanupPreprocessed(preprocessedPath)
+		}
+	}
+
+	// Step 5: Transcribe
 	sendStage("transcribing", "Transcribing speech...")
 
 	mediaDuration, probeErr := MediaDuration(cmd.InputVideo)
@@ -171,7 +190,7 @@ func (p *Pipeline) Run(cmd Command) {
 
 	transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
 	result, err := transcriber.Transcribe(
-		cmd.InputVideo,
+		transcribePath,
 		cmd.SourceLang,
 		cmd.BeamSize,
 		cmd.VADFilter,
@@ -192,7 +211,7 @@ func (p *Pipeline) Run(cmd Command) {
 
 	segments := result.Segments
 
-	// Step 4b: Write diagnostic transcription log (before translation overwrites segments)
+	// Step 5b: Write diagnostic transcription log (before translation overwrites segments)
 	var transcriptionLogPath string
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
 		logPath := DeriveTranscriptionLogPath(cmd.InputVideo)
@@ -207,7 +226,7 @@ func (p *Pipeline) Run(cmd Command) {
 		}
 	}
 
-	// Step 5: Translate (if target language specified)
+	// Step 6: Translate (if target language specified)
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
 		sendStage("translating", fmt.Sprintf("Translating to %s...", *cmd.TargetLang))
 
@@ -285,7 +304,7 @@ func (p *Pipeline) Run(cmd Command) {
 		segments = translated
 	}
 
-	// Step 6: Write subtitle file
+	// Step 7: Write subtitle file
 	sendStage("writing", "Writing subtitle file...")
 
 	outputFormat := cmd.OutputFormat

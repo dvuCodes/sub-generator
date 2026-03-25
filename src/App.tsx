@@ -21,6 +21,7 @@ import {
 } from "./lib/processingState";
 import { formatRuntimeError } from "./lib/runtimeError";
 import type {
+  AudioConfig,
   GenerateCommand,
   ModelSize,
   OutputFormat,
@@ -50,6 +51,12 @@ function App() {
   const [format, setFormat] = useState<OutputFormat>("srt");
   const [beamSize, setBeamSize] = useState(5);
   const [vadFilter, setVadFilter] = useState(true);
+  const [audioConfig, setAudioConfig] = useState<AudioConfig>({
+    enabled: true,
+    vocal_boost_db: 3,
+    noise_gate: true,
+    normalize: true,
+  });
 
   const [appState, setAppState] = useState<AppState>("idle");
   const [processing, setProcessing] = useState<ProcessingState>(
@@ -179,6 +186,7 @@ function App() {
         model_size: model,
         beam_size: beamSize,
         vad_filter: vadFilter,
+        audio_config: audioConfig,
       };
       await sendCommand(command);
     } catch (err) {
@@ -194,6 +202,7 @@ function App() {
     model,
     beamSize,
     vadFilter,
+    audioConfig,
     sendCommand,
   ]);
 
@@ -347,8 +356,11 @@ function App() {
             <SettingsPanel
               beamSize={beamSize}
               vadFilter={vadFilter}
+              audioConfig={audioConfig}
               onBeamSizeChange={setBeamSize}
               onVadFilterChange={setVadFilter}
+              onAudioConfigChange={setAudioConfig}
+              disabled={isProcessing}
             />
 
             {appState === "error" && errorMsg && (

@@ -9,6 +9,13 @@ export type ModelSize =
 
 export type OutputFormat = "srt" | "ass" | "vtt";
 
+export interface AudioConfig {
+  enabled: boolean;
+  vocal_boost_db: number;
+  noise_gate: boolean;
+  normalize: boolean;
+}
+
 export interface GenerateCommand {
   command: "generate";
   input_video: string;
@@ -19,6 +26,7 @@ export interface GenerateCommand {
   model_size: ModelSize;
   beam_size: number;
   vad_filter: boolean;
+  audio_config: AudioConfig;
 }
 
 export interface ListLanguagesCommand {
