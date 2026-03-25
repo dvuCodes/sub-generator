@@ -1,24 +1,30 @@
 import { useState } from "react";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Settings01Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
+import type { AudioConfig } from "@/lib/types";
 
 interface SettingsPanelProps {
   beamSize: number;
   vadFilter: boolean;
+  audioConfig: AudioConfig;
   onBeamSizeChange: (size: number) => void;
   onVadFilterChange: (enabled: boolean) => void;
+  onAudioConfigChange: (config: AudioConfig) => void;
   disabled?: boolean;
 }
 
 export function SettingsPanel({
   beamSize,
   vadFilter,
+  audioConfig,
   onBeamSizeChange,
   onVadFilterChange,
+  onAudioConfigChange,
   disabled,
 }: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -78,6 +84,93 @@ export function SettingsPanel({
             />
           </div>
 
+          <Separator />
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-xs">Audio Enhancement</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Preprocess audio to improve transcription
+                </p>
+              </div>
+              <Switch
+                checked={audioConfig.enabled}
+                onCheckedChange={(enabled) =>
+                  onAudioConfigChange({ ...audioConfig, enabled })
+                }
+                disabled={disabled}
+              />
+            </div>
+
+            {audioConfig.enabled && (
+              <div className="space-y-4 pl-1">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">
+                      Vocal Boost
+                    </Label>
+                    <span className="font-mono text-xs text-foreground">
+                      {audioConfig.vocal_boost_db} dB
+                    </span>
+                  </div>
+                  <Slider
+                    min={0}
+                    max={6}
+                    step={1}
+                    value={[audioConfig.vocal_boost_db]}
+                    onValueChange={([val]) =>
+                      onAudioConfigChange({
+                        ...audioConfig,
+                        vocal_boost_db: val,
+                      })
+                    }
+                    disabled={disabled}
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>Off</span>
+                    <span>Max boost</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="text-xs text-muted-foreground">
+                      Noise Gate
+                    </Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Suppress non-speech segments
+                    </p>
+                  </div>
+                  <Switch
+                    checked={audioConfig.noise_gate}
+                    onCheckedChange={(noise_gate) =>
+                      onAudioConfigChange({ ...audioConfig, noise_gate })
+                    }
+                    disabled={disabled}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="text-xs text-muted-foreground">
+                      Normalization
+                    </Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Even out volume levels
+                    </p>
+                  </div>
+                  <Switch
+                    checked={audioConfig.normalize}
+                    onCheckedChange={(normalize) =>
+                      onAudioConfigChange({ ...audioConfig, normalize })
+                    }
+                    disabled={disabled}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -9,18 +9,35 @@ import (
 // --- IPC Command Types (received from Tauri via stdin) ---
 
 type Command struct {
-	Command      string  `json:"command"`
-	InputVideo   string  `json:"input_video,omitempty"`
-	SourceLang   *string `json:"source_lang,omitempty"`
-	TargetLang   *string `json:"target_lang,omitempty"`
-	OutputFormat string  `json:"output_format,omitempty"`
-	OutputPath   *string `json:"output_path,omitempty"`
-	ModelSize    string  `json:"model_size,omitempty"`
-	BeamSize     int     `json:"beam_size,omitempty"`
-	VADFilter    bool    `json:"vad_filter,omitempty"`
+	Command      string      `json:"command"`
+	InputVideo   string      `json:"input_video,omitempty"`
+	SourceLang   *string     `json:"source_lang,omitempty"`
+	TargetLang   *string     `json:"target_lang,omitempty"`
+	OutputFormat string      `json:"output_format,omitempty"`
+	OutputPath   *string     `json:"output_path,omitempty"`
+	ModelSize    string      `json:"model_size,omitempty"`
+	BeamSize     int         `json:"beam_size,omitempty"`
+	VADFilter    bool        `json:"vad_filter,omitempty"`
+	AudioConfig  AudioConfig `json:"audio_config,omitempty"`
 	// install_language fields
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
+}
+
+type AudioConfig struct {
+	Enabled      bool    `json:"enabled"`
+	VocalBoostDB float64 `json:"vocal_boost_db"`
+	NoiseGate    bool    `json:"noise_gate"`
+	Normalize    bool    `json:"normalize"`
+}
+
+func DefaultAudioConfig() AudioConfig {
+	return AudioConfig{
+		Enabled:      true,
+		VocalBoostDB: 3,
+		NoiseGate:    true,
+		Normalize:    true,
+	}
 }
 
 // --- IPC Response Types (sent to Tauri via stdout) ---
