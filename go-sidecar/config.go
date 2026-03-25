@@ -9,16 +9,17 @@ import (
 // --- IPC Command Types (received from Tauri via stdin) ---
 
 type Command struct {
-	Command      string      `json:"command"`
-	InputVideo   string      `json:"input_video,omitempty"`
-	SourceLang   *string     `json:"source_lang,omitempty"`
-	TargetLang   *string     `json:"target_lang,omitempty"`
-	OutputFormat string      `json:"output_format,omitempty"`
-	OutputPath   *string     `json:"output_path,omitempty"`
-	ModelSize    string      `json:"model_size,omitempty"`
-	BeamSize     int         `json:"beam_size,omitempty"`
-	VADFilter    bool        `json:"vad_filter,omitempty"`
-	AudioConfig  AudioConfig `json:"audio_config,omitempty"`
+	Command      string       `json:"command"`
+	InputVideo   string       `json:"input_video,omitempty"`
+	SourceLang   *string      `json:"source_lang,omitempty"`
+	TargetLang   *string      `json:"target_lang,omitempty"`
+	OutputFormat string       `json:"output_format,omitempty"`
+	OutputPath   *string      `json:"output_path,omitempty"`
+	ModelSize    string       `json:"model_size,omitempty"`
+	BeamSize     int          `json:"beam_size,omitempty"`
+	VADFilter    bool         `json:"vad_filter,omitempty"`
+	AudioConfig  *AudioConfig `json:"audio_config,omitempty"`
+	ActionID     string       `json:"action_id,omitempty"`
 	// install_language fields
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
@@ -116,11 +117,11 @@ type TranscriptionResult struct {
 // --- Service Configuration ---
 
 type ServiceConfig struct {
-	SearchRoots        []string
-	WhisperServerPath  string
-	WhisperModelPath   string
-	WhisperPort        int
-	LlamaServerPort    int
+	SearchRoots       []string
+	WhisperServerPath string
+	WhisperModelPath  string
+	WhisperPort       int
+	LlamaServerPort   int
 }
 
 func DefaultServiceConfig() ServiceConfig {
