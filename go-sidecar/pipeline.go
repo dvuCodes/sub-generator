@@ -119,13 +119,14 @@ func (p *Pipeline) Run(cmd Command) {
 	// Step 4: Preprocess audio (if enabled)
 	transcribePath := cmd.InputVideo
 	audioConfig := cmd.AudioConfig
-	if !audioConfig.Enabled && audioConfig.VocalBoostDB == 0 && !audioConfig.NoiseGate && !audioConfig.Normalize {
-		audioConfig = DefaultAudioConfig()
+	if audioConfig == nil {
+		ac := DefaultAudioConfig()
+		audioConfig = &ac
 	}
 
 	if audioConfig.Enabled {
 		sendStage("preprocessing", "Enhancing audio for transcription...")
-		preprocessedPath, preprocessErr := PreprocessAudio(cmd.InputVideo, audioConfig)
+		preprocessedPath, preprocessErr := PreprocessAudio(cmd.InputVideo, *audioConfig)
 		if preprocessErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: audio preprocessing failed, falling back to raw upload: %v\n", preprocessErr)
 			sendStage("preprocessing", "Audio enhancement skipped, using original audio")
