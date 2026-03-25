@@ -18,7 +18,7 @@ type Command struct {
 	ModelSize    string      `json:"model_size,omitempty"`
 	BeamSize     int         `json:"beam_size,omitempty"`
 	VADFilter    bool        `json:"vad_filter,omitempty"`
-	AudioConfig  AudioConfig `json:"audio_config"`
+	AudioConfig  AudioConfig `json:"audio_config,omitempty"`
 	// install_language fields
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
