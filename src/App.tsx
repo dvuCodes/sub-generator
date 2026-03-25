@@ -25,7 +25,6 @@ import type {
   ModelSize,
   OutputFormat,
   SidecarResponse,
-  VadParams,
 } from "./lib/types";
 import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -51,13 +50,6 @@ function App() {
   const [format, setFormat] = useState<OutputFormat>("srt");
   const [beamSize, setBeamSize] = useState(5);
   const [vadFilter, setVadFilter] = useState(true);
-  const [vadParams, setVadParams] = useState<VadParams>({
-    vad_threshold: 0.5,
-    vad_min_speech_duration_ms: 250,
-    vad_min_silence_duration_ms: 100,
-    vad_max_speech_duration_s: 0,
-    vad_speech_pad_ms: 30,
-  });
 
   const [appState, setAppState] = useState<AppState>("idle");
   const [processing, setProcessing] = useState<ProcessingState>(
@@ -187,7 +179,6 @@ function App() {
         model_size: model,
         beam_size: beamSize,
         vad_filter: vadFilter,
-        ...(vadFilter ? { vad_params: vadParams } : {}),
       };
       await sendCommand(command);
     } catch (err) {
@@ -203,7 +194,6 @@ function App() {
     model,
     beamSize,
     vadFilter,
-    vadParams,
     sendCommand,
   ]);
 
@@ -357,10 +347,8 @@ function App() {
             <SettingsPanel
               beamSize={beamSize}
               vadFilter={vadFilter}
-              vadParams={vadParams}
               onBeamSizeChange={setBeamSize}
               onVadFilterChange={setVadFilter}
-              onVadParamsChange={setVadParams}
             />
 
             {appState === "error" && errorMsg && (

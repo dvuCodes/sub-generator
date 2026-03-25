@@ -341,7 +341,7 @@ func (p *Pipeline) validateInput(path string) error {
 func (p *Pipeline) ensureServices(cmd Command) error {
 	// Start whisper-server for transcription (llama-server starts later, just before translation)
 	sendProgress("starting_services", 25, "Starting whisper-server...")
-	if err := p.svcManager.StartWhisperServer(cmd.ModelSize, cmd.VADParams); err != nil {
+	if err := p.svcManager.StartWhisperServer(cmd.ModelSize); err != nil {
 		return fmt.Errorf("whisper-server: %w", err)
 	}
 	sendProgress("starting_services", 100, "All services ready")

@@ -21,5 +21,9 @@ export function deriveOutputDirectory(outputPath: string) {
 }
 
 export function explorerOpenTarget(outputPath: string) {
-  return deriveOutputDirectory(outputPath);
+  const dir = deriveOutputDirectory(outputPath);
+  const normalized = dir.replace(/\\/g, "/");
+  return normalized.startsWith("/")
+    ? `file://${normalized}`
+    : `file:///${normalized}`;
 }
