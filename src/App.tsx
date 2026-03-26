@@ -20,18 +20,27 @@ import {
   type ProcessingState,
 } from "./lib/processingState";
 import { formatRuntimeError } from "./lib/runtimeError";
+import { SetupBanner } from "./components/SetupBanner";
+import { shouldDisableGenerate } from "./lib/setupHelpers";
+import {
+  advanceInstallState,
+  createInitialInstallState,
+  isInstallComplete,
+  type InstallState,
+} from "./lib/installState";
 import type {
   AudioConfig,
   GenerateCommand,
   ModelSize,
   OutputFormat,
   SidecarResponse,
+  SetupStatusResponse,
 } from "./lib/types";
 import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { SubtitleIcon, SparklesIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
 
-type AppState = "idle" | "processing" | "complete" | "error";
+type AppState = "idle" | "processing" | "complete" | "error" | "installing";
 
 interface CompletionState {
   outputPath: string;
@@ -67,6 +76,8 @@ function App() {
   const [errorMsg, setErrorMsg] = useState("");
   const [translationWarning, setTranslationWarning] = useState("");
   const [isStopping, setIsStopping] = useState(false);
+  const [setupStatus, setSetupStatus] = useState<SetupStatusResponse | null>(null);
+  const [installState, setInstallState] = useState<InstallState | null>(null);
 
   const hasNvidiaGpu =
     systemInfo !== null &&
@@ -85,6 +96,12 @@ function App() {
   const sendCommandRef = useRef(sendCommand);
   sendCommandRef.current = sendCommand;
 
+  const appStateRef = useRef(appState);
+  appStateRef.current = appState;
+
+  const installStateRef = useRef(installState);
+  installStateRef.current = installState;
+
   useEffect(() => {
     connect().catch((err) => {
       setErrorMsg(`Failed to start backend: ${err}`);
@@ -95,11 +112,32 @@ function App() {
   useEffect(() => {
     onResponse((response: SidecarResponse) => {
       switch (response.type) {
+        case "setup_status":
+          setSetupStatus(response as SetupStatusResponse);
+          if (appStateRef.current === "installing" && installStateRef.current) {
+            if (isInstallComplete(installStateRef.current, response as SetupStatusResponse)) {
+              setAppState("idle");
+              setInstallState(null);
+            }
+          }
+          break;
         case "progress":
-          setProcessing((current) => advanceProcessingState(current, response));
+          if (appStateRef.current === "installing") {
+            setInstallState((current) =>
+              current ? advanceInstallState(current, response as any) : current
+            );
+          } else {
+            setProcessing((current) => advanceProcessingState(current, response));
+          }
           break;
         case "stage":
-          setProcessing((current) => advanceProcessingState(current, response));
+          if (appStateRef.current === "installing") {
+            setInstallState((current) =>
+              current ? advanceInstallState(current, response as any) : current
+            );
+          } else {
+            setProcessing((current) => advanceProcessingState(current, response));
+          }
           break;
         case "complete":
           setCompletion({
@@ -157,6 +195,9 @@ function App() {
     });
     sendCommand({ command: "list_languages" }).catch((err) => {
       console.error("Failed to request language list:", err);
+    });
+    sendCommand({ command: "check_setup" }).catch((err) => {
+      console.error("Failed to check setup:", err);
     });
   }, [connected, sendCommand]);
 
@@ -239,6 +280,24 @@ function App() {
       setIsStopping(false);
     }
   }, [appState, connect, disconnect, isStopping]);
+
+  const handleInstall = useCallback(
+    async (actionId: string) => {
+      const serviceId = actionId.split("/")[0];
+      setAppState("installing");
+      setInstallState(createInitialInstallState(actionId, serviceId));
+      setErrorMsg("");
+
+      try {
+        await sendCommand({ command: "install_dependency", action_id: actionId });
+      } catch (err) {
+        setErrorMsg(`Failed to start install: ${err}`);
+        setAppState("error");
+        setInstallState(null);
+      }
+    },
+    [sendCommand]
+  );
 
   const isProcessing = appState === "processing";
   const translationStatus = systemInfo?.translationEngine
@@ -324,8 +383,29 @@ function App() {
             stopDisabled={isStopping}
             stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
           />
+        ) : appState === "installing" && installState ? (
+          <ProcessingView
+            stage={installState.stage}
+            percent={installState.percent}
+            message={installState.message}
+            elapsedSecs={null}
+            etaSecs={null}
+            stageOrder={["downloading_dependency", "extracting", "validating"]}
+            stageLabels={{
+              downloading_dependency: "Download",
+              extracting: "Extract",
+              validating: "Validate",
+            }}
+          />
         ) : (
           <>
+            {setupStatus && (
+              <SetupBanner
+                setupStatus={setupStatus}
+                onInstall={handleInstall}
+              />
+            )}
+
             <VideoDropzone
               selectedFile={videoPath}
               onFileSelect={setVideoPath}
@@ -382,7 +462,7 @@ function App() {
               size="lg"
               className="w-full py-6 text-xs font-medium uppercase tracking-widest"
               onClick={handleGenerate}
-              disabled={!videoPath || !connected}
+              disabled={!videoPath || !connected || shouldDisableGenerate(setupStatus, targetLang)}
             >
               <HugeiconsIcon icon={SparklesIcon} className="size-4" strokeWidth={1.5} />
               {!connected
