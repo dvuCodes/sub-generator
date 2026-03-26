@@ -13,7 +13,15 @@ import (
 )
 
 var stdoutMu sync.Mutex
+var pipelineMu sync.Mutex
+var actionRegistry = NewActionRegistry()
+
 var runGenerate = func(pipeline *Pipeline, cmd Command) {
+	if !pipelineMu.TryLock() {
+		sendError("Generate failed", "Cannot generate while installing. Wait for installation to complete.")
+		return
+	}
+	defer pipelineMu.Unlock()
 	pipeline.Run(cmd)
 }
 
@@ -108,9 +116,52 @@ func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) 
 		svcManager.StopAll()
 		sendJSON(map[string]string{"type": "services_stopped"})
 
+	case "check_setup":
+		result := CheckSetup(svcManager.config, actionRegistry)
+		sendJSON(result)
+
+	case "install_dependency":
+		if cmd.ActionID == "" {
+			sendError("Invalid command", "install_dependency requires action_id")
+			return
+		}
+		go runInstallDependency(cmd.ActionID, svcManager)
+
 	default:
 		sendError("Unknown command", fmt.Sprintf("command '%s' is not recognized", cmd.Command))
 	}
+}
+
+func runInstallDependency(actionID string, svcManager *ServiceManager) {
+	if !pipelineMu.TryLock() {
+		sendError("Install failed", "Cannot install while processing. Stop processing first.")
+		return
+	}
+	defer pipelineMu.Unlock()
+
+	action, err := actionRegistry.Resolve(actionID)
+	if err != nil {
+		sendError("Install failed", err.Error())
+		return
+	}
+
+	if err := DownloadAndExtractArchive(action, svcManager, func(downloaded, total int64) {
+		if total > 0 {
+			pct := float64(downloaded) / float64(total) * 100
+			sendProgress("downloading_dependency", pct, fmt.Sprintf("Downloading %s / %s", formatBytes(downloaded), formatBytes(total)))
+		} else {
+			sendProgress("downloading_dependency", 0, fmt.Sprintf("Downloading %s...", formatBytes(downloaded)))
+		}
+	}); err != nil {
+		sendError("Install failed", err.Error())
+		return
+	}
+
+	sendProgress("validating", 100, "Installation complete")
+
+	// Re-check setup and send fresh status
+	result := CheckSetup(svcManager.config, actionRegistry)
+	sendJSON(result)
 }
 
 func listAvailableLanguages() ([]LanguagePair, error) {
