@@ -49,13 +49,54 @@ export interface VramInfoCommand {
   command: "vram_info";
 }
 
+export type RequiredFor = "transcription" | "translation";
+
+export interface ServiceIssue {
+  code: string;
+  observed_error?: string;
+}
+
+export interface ServiceAction {
+  id: string;
+  label: string;
+  description: string;
+  kind: "archive" | "manual";
+  preferred?: boolean;
+  guidance?: string;
+}
+
+export interface ServiceStatus {
+  id: string;
+  display_name: string;
+  required_for: RequiredFor;
+  state: "ready" | "action_required";
+  issues: ServiceIssue[];
+  actions: ServiceAction[];
+}
+
+export interface SetupStatusResponse {
+  type: "setup_status";
+  services: ServiceStatus[];
+}
+
+export interface CheckSetupCommand {
+  command: "check_setup";
+}
+
+export interface InstallDependencyCommand {
+  command: "install_dependency";
+  action_id: string;
+}
+
 export type SidecarCommand =
   | GenerateCommand
   | ListLanguagesCommand
   | SystemInfoCommand
   | StartServicesCommand
   | StopServicesCommand
-  | VramInfoCommand;
+  | VramInfoCommand
+  | CheckSetupCommand
+  | InstallDependencyCommand;
 
 // IPC responses (Go sidecar -> frontend)
 export interface ProgressResponse {
@@ -122,4 +163,5 @@ export type SidecarResponse =
   | ErrorResponse
   | LanguagesResponse
   | SystemInfoResponse
-  | VramInfoResponse;
+  | VramInfoResponse
+  | SetupStatusResponse;
