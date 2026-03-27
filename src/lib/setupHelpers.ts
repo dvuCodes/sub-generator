@@ -1,5 +1,6 @@
 import type {
   ASRBackend,
+  ServiceAction,
   ServiceIssue,
   SetupStatusResponse,
   TranslationBackend,
@@ -56,4 +57,26 @@ export function formatSetupIssue(issue: ServiceIssue): string {
     default:
       return `Setup issue: ${issue.code}`;
   }
+}
+
+export function findPromptableInstallAction(
+  setupStatus: SetupStatusResponse | null
+): ServiceAction | null {
+  if (!setupStatus) return null;
+
+  for (const service of setupStatus.services) {
+    if (service.state !== "action_required") {
+      continue;
+    }
+
+    const preferredCommand =
+      service.actions.find((action) => action.kind === "command" && action.preferred) ??
+      service.actions.find((action) => action.kind === "command");
+
+    if (preferredCommand) {
+      return preferredCommand;
+    }
+  }
+
+  return null;
 }

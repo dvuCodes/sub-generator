@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { shouldDisableGenerate, formatSetupIssue } from "./setupHelpers";
+import {
+  findPromptableInstallAction,
+  shouldDisableGenerate,
+  formatSetupIssue,
+} from "./setupHelpers";
 import type { ServiceStatus, SetupStatusResponse } from "./types";
 
 function makeStatus(overrides: Partial<ServiceStatus>[]): SetupStatusResponse {
@@ -104,5 +108,64 @@ describe("formatSetupIssue", () => {
   it("returns fallback for binary_not_runnable without observed_error", () => {
     expect(formatSetupIssue({ code: "binary_not_runnable" }))
       .toContain("cannot start");
+  });
+
+  it("prefers observed_error guidance for dependency issues", () => {
+    expect(
+      formatSetupIssue({
+        code: "binary_not_runnable",
+        observed_error:
+          'faster-whisper Python dependency is missing. Install packages from "python-backend\\requirements.txt".',
+      })
+    ).toContain("python-backend\\requirements.txt");
+  });
+});
+
+describe("findPromptableInstallAction", () => {
+  it("returns the preferred command action for missing dependencies", () => {
+    const status = makeStatus([
+      {
+        id: "ml-backend",
+        state: "action_required",
+        actions: [
+          {
+            id: "ml-backend/install_python_dependencies",
+            label: "Install Python dependencies",
+            description: "Install missing ML backend Python packages.",
+            kind: "command" as const,
+            preferred: true,
+          },
+          {
+            id: "ml-backend/install_bundle",
+            label: "Install ML backend bundle",
+            description: "Manual fallback",
+            kind: "manual" as const,
+          },
+        ],
+      },
+    ]);
+
+    expect(findPromptableInstallAction(status)?.id).toBe(
+      "ml-backend/install_python_dependencies"
+    );
+  });
+
+  it("returns null when there is no actionable install", () => {
+    const status = makeStatus([
+      {
+        id: "ml-backend",
+        state: "action_required",
+        actions: [
+          {
+            id: "ml-backend/install_bundle",
+            label: "Install ML backend bundle",
+            description: "Manual fallback",
+            kind: "manual" as const,
+          },
+        ],
+      },
+    ]);
+
+    expect(findPromptableInstallAction(status)).toBeNull();
   });
 });

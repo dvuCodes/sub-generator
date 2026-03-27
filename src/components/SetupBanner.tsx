@@ -22,7 +22,9 @@ export function SetupBanner({ setupStatus, onInstall, disabled }: SetupBannerPro
       {servicesWithIssues.map((service) => {
         const issues = service.issues ?? [];
         const actions = service.actions ?? [];
+        const actionableActions = actions.filter((action) => action.kind !== "manual");
         const archiveActions = actions.filter((action) => action.kind === "archive");
+        const manualActions = actions.filter((action) => action.kind === "manual");
 
         return (
           <div
@@ -50,10 +52,9 @@ export function SetupBanner({ setupStatus, onInstall, disabled }: SetupBannerPro
               </div>
             </div>
 
-            {actions.length > 0 && (
+            {actionableActions.length > 0 && (
               <div className="flex flex-wrap gap-2 pl-7">
-                {actions.map((action) =>
-                  action.kind === "archive" ? (
+                {actionableActions.map((action) => (
                     <Button
                       key={action.id}
                       size="sm"
@@ -64,15 +65,30 @@ export function SetupBanner({ setupStatus, onInstall, disabled }: SetupBannerPro
                     >
                       {action.label}
                     </Button>
-                  ) : (
-                    <p
-                      key={action.id}
-                      className="text-[11px] text-muted-foreground"
-                    >
-                      {action.guidance}
+                  ))}
+              </div>
+            )}
+
+            {manualActions.length > 0 && (
+              <div className="space-y-2 pl-7">
+                {manualActions.map((action) => (
+                  <div
+                    key={action.id}
+                    className="space-y-1 border border-border/60 bg-background/50 p-3"
+                  >
+                    <p className="text-[11px] font-medium text-foreground">
+                      {action.label}
                     </p>
-                  )
-                )}
+                    <p className="text-[10px] text-muted-foreground">
+                      {action.description}
+                    </p>
+                    {action.guidance && (
+                      <p className="text-[10px] text-muted-foreground">
+                        {action.guidance}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 

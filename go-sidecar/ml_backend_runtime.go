@@ -14,7 +14,25 @@ const (
 	mlBackendServiceID        = "ml-backend"
 )
 
+func mlBackendInstallIsLaunchable(dir string) bool {
+	if dir == "" {
+		return false
+	}
+
+	candidates := []string{
+		filepath.Join(dir, mlBackendLauncherName()),
+		filepath.Join(dir, "subgen_ml_backend", "__main__.py"),
+		filepath.Join(dir, "app", "service.py"),
+		filepath.Join(dir, "service.py"),
+		filepath.Join(dir, "backend.py"),
+	}
+
+	return firstExistingPath(candidates...) != ""
+}
+
 func preferredMLBackendInstallDir(searchRoots []string) string {
+	var fallback string
+
 	for _, root := range normalizeSearchRoots(searchRoots) {
 		candidates := []string{
 			filepath.Join(root, "services", "ml-backend"),
@@ -22,9 +40,18 @@ func preferredMLBackendInstallDir(searchRoots []string) string {
 		}
 		for _, candidate := range candidates {
 			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-				return candidate
+				if fallback == "" {
+					fallback = candidate
+				}
+				if mlBackendInstallIsLaunchable(candidate) {
+					return candidate
+				}
 			}
 		}
+	}
+
+	if fallback != "" {
+		return fallback
 	}
 
 	if len(searchRoots) > 0 {
@@ -41,6 +68,15 @@ func resolveMLBackendScriptPath(searchRoots []string) string {
 		filepath.Join(installDir, "app", "service.py"),
 		filepath.Join(installDir, "service.py"),
 		filepath.Join(installDir, "backend.py"),
+	}
+	return firstExistingPath(candidates...)
+}
+
+func resolveMLBackendRequirementsPath(searchRoots []string) string {
+	installDir := preferredMLBackendInstallDir(searchRoots)
+	candidates := []string{
+		filepath.Join(installDir, "requirements.txt"),
+		filepath.Join(filepath.Dir(resolveMLBackendScriptPath(searchRoots)), "requirements.txt"),
 	}
 	return firstExistingPath(candidates...)
 }

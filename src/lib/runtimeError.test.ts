@@ -29,4 +29,26 @@ describe("formatRuntimeError", () => {
     expect(error).toContain("llama-server is required for translation");
     expect(error).toContain("services\\llama-server\\llama-server.exe");
   });
+
+  it("turns an ml-backend setup failure into actionable guidance", () => {
+    const error = formatRuntimeError(
+      "Service startup failed",
+      'ml-backend: ml-backend setup is incomplete: launcher or service.py missing under "C:\\Users\\datvu\\Documents\\code\\sub-generator\\services\\ml-backend"'
+    );
+
+    expect(error).toContain("Service startup failed:");
+    expect(error).toContain("python-backend\\service.py");
+    expect(error).toContain("services\\ml-backend");
+  });
+
+  it("turns a missing faster-whisper module into dependency guidance", () => {
+    const error = formatRuntimeError(
+      "Transcription failed",
+      'ml-backend ASR returned status 503: {"error":"faster-whisper is not available: No module named \'faster_whisper\'"}'
+    );
+
+    expect(error).toContain("Transcription failed:");
+    expect(error).toContain("faster-whisper Python dependency is missing");
+    expect(error).toContain("python-backend\\requirements.txt");
+  });
 });

@@ -10,6 +10,7 @@
   - propose a short plan (2-6 bullets), then execute.
 - Always check for relevant skills before building.
 - Run project git commands from `C:\Users\datvu\projects\sub-generator`; do not use the parent `C:\Users\datvu\projects` repo for this project.
+- Run Go commands and tests from `C:\Users\datvu\projects\sub-generator\go-sidecar`; it is a nested Go module and `go test ./...` will not resolve correctly from the repo root.
 - If `rg.exe` is blocked in PowerShell, use `Select-String` and `Get-ChildItem` as the repository search fallback.
 - If the Tauri app uses `externalBin` sidecars, verify the bundled sidecar executable is rebuilt when `go-sidecar/` changes.
 - For `tauri dev`, avoid rebuilding or recopying the sidecar on unrelated Rust/UI changes; only refresh the dev copies when `go-sidecar/` is newer, otherwise Windows can fail on a locked `subgen-sidecar.exe`.

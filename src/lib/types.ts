@@ -89,7 +89,7 @@ export interface ServiceAction {
   id: string;
   label: string;
   description: string;
-  kind: "archive" | "manual";
+  kind: "archive" | "manual" | "command";
   preferred?: boolean;
   guidance?: string;
 }
