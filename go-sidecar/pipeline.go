@@ -20,13 +20,15 @@ var supportedVideoExts = map[string]bool{
 }
 
 type Pipeline struct {
-	svcManager       *ServiceManager
+	svcManager      *ServiceManager
 	cleanupServices func()
 }
 
+type transcribeAttempt func(path string) (*TranscriptionResult, error)
+
 func NewPipeline(svcManager *ServiceManager) *Pipeline {
 	return &Pipeline{
-		svcManager:       svcManager,
+		svcManager:      svcManager,
 		cleanupServices: svcManager.StopAll,
 	}
 }
@@ -119,13 +121,14 @@ func (p *Pipeline) Run(cmd Command) {
 	// Step 4: Preprocess audio (if enabled)
 	transcribePath := cmd.InputVideo
 	audioConfig := cmd.AudioConfig
-	if !audioConfig.Enabled && audioConfig.VocalBoostDB == 0 && !audioConfig.NoiseGate && !audioConfig.Normalize {
-		audioConfig = DefaultAudioConfig()
+	if audioConfig == nil {
+		ac := DefaultAudioConfig()
+		audioConfig = &ac
 	}
 
 	if audioConfig.Enabled {
 		sendStage("preprocessing", "Enhancing audio for transcription...")
-		preprocessedPath, preprocessErr := PreprocessAudio(cmd.InputVideo, audioConfig)
+		preprocessedPath, preprocessErr := PreprocessAudio(cmd.InputVideo, *audioConfig)
 		if preprocessErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: audio preprocessing failed, falling back to raw upload: %v\n", preprocessErr)
 			sendStage("preprocessing", "Audio enhancement skipped, using original audio")
@@ -189,20 +192,29 @@ func (p *Pipeline) Run(cmd Command) {
 	}()
 
 	transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
-	result, err := transcriber.Transcribe(
+	result, err := transcribeWithValidationFallback(
 		transcribePath,
-		cmd.SourceLang,
-		cmd.BeamSize,
-		cmd.VADFilter,
+		cmd.InputVideo,
+		func(path string) (*TranscriptionResult, error) {
+			return transcriber.Transcribe(
+				path,
+				cmd.SourceLang,
+				cmd.BeamSize,
+				cmd.VADFilter,
+			)
+		},
+		func(reason string) {
+			fmt.Fprintf(
+				os.Stderr,
+				"warning: enhanced audio transcription returned no usable subtitle segments, retrying original input: %s\n",
+				reason,
+			)
+			sendStage("transcribing", "Enhanced audio produced no usable transcript, retrying original audio...")
+		},
 	)
 	close(done)
 
 	if err != nil {
-		sendError("Transcription failed", err.Error())
-		return
-	}
-
-	if err := validateTranscriptionResult(result); err != nil {
 		sendError("Transcription failed", err.Error())
 		return
 	}
@@ -415,4 +427,37 @@ func validateTranscriptionResult(result *TranscriptionResult) error {
 	}
 
 	return fmt.Errorf("no speech was detected in the input video, so there are no subtitle segments to write")
+}
+
+func transcribeWithValidationFallback(
+	primaryPath string,
+	rawPath string,
+	transcribe transcribeAttempt,
+	onFallback func(reason string),
+) (*TranscriptionResult, error) {
+	result, err := transcribe(primaryPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateTranscriptionResult(result); err == nil {
+		return result, nil
+	} else if primaryPath == "" || rawPath == "" || primaryPath == rawPath {
+		return nil, err
+	} else {
+		if onFallback != nil {
+			onFallback(err.Error())
+		}
+	}
+
+	result, err = transcribe(rawPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateTranscriptionResult(result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
