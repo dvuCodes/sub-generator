@@ -17,43 +17,52 @@ type SetupStatusResponse struct {
 }
 
 type ServiceStatus struct {
-	ID      string         `json:"id"`
-	State   string         `json:"state"` // "ready" | "action_required"
-	Issues  []ServiceIssue `json:"issues,omitempty"`
-	Actions []ServiceAction `json:"actions,omitempty"`
+	ID          string          `json:"id"`
+	DisplayName string          `json:"display_name"`
+	RequiredFor string          `json:"required_for"`
+	State       string          `json:"state"` // "ready" | "action_required"
+	Issues      []ServiceIssue  `json:"issues"`
+	Actions     []ServiceAction `json:"actions"`
 }
 
 type ServiceIssue struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code          string `json:"code"`
+	ObservedError string `json:"observed_error,omitempty"`
 }
 
 type ServiceAction struct {
-	ID    string `json:"id"`
-	Kind  string `json:"kind"`  // "download" | "manual"
-	Label string `json:"label"`
-	URL   string `json:"url,omitempty"`
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Kind        string `json:"kind"` // "archive" | "manual"
+	Preferred   bool   `json:"preferred,omitempty"`
+	Guidance    string `json:"guidance,omitempty"`
 }
 
 // --- Internal Action type (superset of ServiceAction) ---
 
 type Action struct {
 	ID              string
+	Description     string
 	Kind            string
 	Label           string
 	URL             string
 	InstallDir      string
 	StripComponents int
 	ExpectedBinary  string
+	Preferred       bool
+	Guidance        string
 	ServiceID       string
 }
 
 func (a Action) toServiceAction() ServiceAction {
 	return ServiceAction{
-		ID:    a.ID,
-		Kind:  a.Kind,
-		Label: a.Label,
-		URL:   a.URL,
+		ID:          a.ID,
+		Label:       a.Label,
+		Description: a.Description,
+		Kind:        a.Kind,
+		Preferred:   a.Preferred,
+		Guidance:    a.Guidance,
 	}
 }
 
@@ -86,6 +95,10 @@ func (r *ActionRegistry) Resolve(id string) (Action, error) {
 // exited (any exit code is acceptable — the binary is loadable).
 // It fails if the process could not be started at all (e.g., DLL load error).
 func probeService(binaryPath string) (issueCode, stderr string) {
+	if err := validateCommandAvailability(binaryPath, binaryPath); err != nil {
+		return "binary_not_found", err.Error()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -149,26 +162,32 @@ func checkFFmpeg() ServiceStatus {
 func checkFFmpegWith(validator ffmpegValidator) ServiceStatus {
 	if err := validator("ffmpeg", "ffmpeg"); err == nil {
 		return ServiceStatus{
-			ID:    "ffmpeg",
-			State: "ready",
+			ID:          "ffmpeg",
+			DisplayName: "ffmpeg",
+			RequiredFor: "transcription",
+			State:       "ready",
+			Issues:      []ServiceIssue{},
+			Actions:     []ServiceAction{},
 		}
 	}
 
 	return ServiceStatus{
-		ID:    "ffmpeg",
-		State: "action_required",
+		ID:          "ffmpeg",
+		DisplayName: "ffmpeg",
+		RequiredFor: "transcription",
+		State:       "action_required",
 		Issues: []ServiceIssue{
 			{
-				Code:    "not_in_path",
-				Message: "ffmpeg is not available in PATH. It is required for video file transcription.",
+				Code: "not_in_path",
 			},
 		},
 		Actions: []ServiceAction{
 			{
-				ID:    "ffmpeg/install_manual",
-				Kind:  "manual",
-				Label: "Install ffmpeg",
-				URL:   "https://ffmpeg.org/download.html",
+				ID:          "ffmpeg/install_manual",
+				Kind:        "manual",
+				Label:       "Install ffmpeg",
+				Description: "Install ffmpeg and add it to PATH for video transcription.",
+				Guidance:    "Download ffmpeg from https://ffmpeg.org/download.html and add it to your system PATH.",
 			},
 		},
 	}
@@ -182,24 +201,28 @@ func whisperDownloadActions(hasGPU bool, installDir string) []Action {
 	if hasGPU {
 		actions = append(actions, Action{
 			ID:              "whisper/install_gpu_bundle",
-			Kind:            "download",
+			Kind:            "archive",
 			Label:           "Install whisper.cpp GPU bundle (CUDA 12.4)",
+			Description:     "Preferred for NVIDIA GPUs. Faster transcription.",
 			URL:             "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-cublas-12.4.0-bin-x64.zip",
 			InstallDir:      installDir,
 			StripComponents: 1,
 			ExpectedBinary:  whisperExecutableName(),
+			Preferred:       true,
 			ServiceID:       "whisper",
 		})
 	}
 
 	actions = append(actions, Action{
 		ID:              "whisper/install_cpu_bundle",
-		Kind:            "download",
+		Kind:            "archive",
 		Label:           "Install whisper.cpp CPU bundle",
+		Description:     "Works on all systems. Slower transcription.",
 		URL:             "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-bin-x64.zip",
 		InstallDir:      installDir,
 		StripComponents: 1,
 		ExpectedBinary:  whisperExecutableName(),
+		Preferred:       !hasGPU,
 		ServiceID:       "whisper",
 	})
 
@@ -212,24 +235,28 @@ func llamaDownloadActions(hasGPU bool, installDir string) []Action {
 	if hasGPU {
 		actions = append(actions, Action{
 			ID:              "llama/install_gpu_bundle",
-			Kind:            "download",
+			Kind:            "archive",
 			Label:           "Install llama.cpp GPU bundle (CUDA 12.4)",
+			Description:     "Preferred for NVIDIA GPUs. Faster translation.",
 			URL:             "https://github.com/ggml-org/llama.cpp/releases/download/b5170/cudart-llama-bin-win-cu12.4-x64.zip",
 			InstallDir:      installDir,
 			StripComponents: 1,
 			ExpectedBinary:  llamaExecutableName(),
+			Preferred:       true,
 			ServiceID:       "llama",
 		})
 	}
 
 	actions = append(actions, Action{
 		ID:              "llama/install_cpu_bundle",
-		Kind:            "download",
+		Kind:            "archive",
 		Label:           "Install llama.cpp CPU bundle",
+		Description:     "Works on all systems. Slower translation.",
 		URL:             "https://github.com/ggml-org/llama.cpp/releases/download/b5170/llama-b5170-bin-win-noavx-x64.zip",
 		InstallDir:      installDir,
 		StripComponents: 1,
 		ExpectedBinary:  llamaExecutableName(),
+		Preferred:       !hasGPU,
 		ServiceID:       "llama",
 	})
 
@@ -238,23 +265,42 @@ func llamaDownloadActions(hasGPU bool, installDir string) []Action {
 
 // --- Service checker helper ---
 
-func checkService(id, binaryPath string, downloadActions []Action, registry *ActionRegistry) ServiceStatus {
+func checkService(
+	id, displayName, requiredFor, binaryPath string,
+	downloadActions []Action,
+	registry *ActionRegistry,
+) ServiceStatus {
 	issueCode, stderr := probeService(binaryPath)
 	if issueCode == "" {
-		return ServiceStatus{ID: id, State: "ready"}
+		return ServiceStatus{
+			ID:          id,
+			DisplayName: displayName,
+			RequiredFor: requiredFor,
+			State:       "ready",
+			Issues:      []ServiceIssue{},
+			Actions:     []ServiceAction{},
+		}
 	}
 
-	_, attachActions := classifyProbeError(stderr)
+	attachActions := issueCode == "binary_not_found"
+	if issueCode == "binary_not_runnable" {
+		_, attachActions = classifyProbeError(stderr)
+	}
 
 	issue := ServiceIssue{
-		Code:    issueCode,
-		Message: fmt.Sprintf("%s binary could not be loaded", id),
+		Code: issueCode,
+	}
+	if issueCode == "binary_not_runnable" {
+		issue.ObservedError = stderr
 	}
 
 	status := ServiceStatus{
-		ID:     id,
-		State:  "action_required",
-		Issues: []ServiceIssue{issue},
+		ID:          id,
+		DisplayName: displayName,
+		RequiredFor: requiredFor,
+		State:       "action_required",
+		Issues:      []ServiceIssue{issue},
+		Actions:     []ServiceAction{},
 	}
 
 	if attachActions && registry != nil {
@@ -281,8 +327,8 @@ func CheckSetup(config ServiceConfig, registry *ActionRegistry) SetupStatusRespo
 	llamaInstallDir := preferredLlamaInstallDir(config.SearchRoots)
 	llamaActions := llamaDownloadActions(hasGPU, llamaInstallDir)
 
-	whisperStatus := checkService("whisper", whisperBinary, whisperActions, registry)
-	llamaStatus := checkService("llama", llamaBinary, llamaActions, registry)
+	whisperStatus := checkService("whisper", "whisper-server", "transcription", whisperBinary, whisperActions, registry)
+	llamaStatus := checkService("llama", "llama-server", "translation", llamaBinary, llamaActions, registry)
 	ffmpegStatus := checkFFmpeg()
 
 	return SetupStatusResponse{

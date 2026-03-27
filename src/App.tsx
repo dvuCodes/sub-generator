@@ -124,7 +124,7 @@ function App() {
         case "progress":
           if (appStateRef.current === "installing") {
             setInstallState((current) =>
-              current ? advanceInstallState(current, response as any) : current
+              current ? advanceInstallState(current, response) : current
             );
           } else {
             setProcessing((current) => advanceProcessingState(current, response));
@@ -133,7 +133,7 @@ function App() {
         case "stage":
           if (appStateRef.current === "installing") {
             setInstallState((current) =>
-              current ? advanceInstallState(current, response as any) : current
+              current ? advanceInstallState(current, response) : current
             );
           } else {
             setProcessing((current) => advanceProcessingState(current, response));
