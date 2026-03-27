@@ -20,6 +20,7 @@ type ServiceManager struct {
 	currentVADModelPath     string
 	llamaProcess            *os.Process
 	currentLlamaModelPath   string
+	mlBackendProcess        *os.Process
 	mu                      sync.Mutex
 }
 
@@ -34,12 +35,16 @@ func (sm *ServiceManager) StartAll() error {
 	if err := sm.StartLlamaServer(); err != nil {
 		return fmt.Errorf("llama-server: %w", err)
 	}
+	if err := sm.StartMLBackend(); err != nil {
+		return fmt.Errorf("ml-backend: %w", err)
+	}
 	return nil
 }
 
 func (sm *ServiceManager) StopAll() {
 	sm.StopWhisperServer()
 	sm.StopLlamaServer()
+	sm.StopMLBackend()
 }
 
 func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
@@ -192,6 +197,71 @@ func (sm *ServiceManager) StopLlamaServer() {
 	sm.currentLlamaModelPath = ""
 }
 
+func (sm *ServiceManager) StartMLBackend() error {
+	launcherPath := resolveMLBackendLauncher(sm.config.SearchRoots)
+	pythonPath := resolveMLBackendPython(sm.config.SearchRoots)
+	scriptPath := resolveMLBackendScriptPath(sm.config.SearchRoots)
+
+	if scriptPath == "" && !fileExists(launcherPath) {
+		return fmt.Errorf(
+			"ml-backend setup is incomplete: launcher or service.py missing under %q",
+			preferredMLBackendInstallDir(sm.config.SearchRoots),
+		)
+	}
+	if !fileExists(launcherPath) {
+		if err := validateCommandAvailability(pythonPath, "python"); err != nil {
+			return fmt.Errorf("python runtime is required for ml-backend: %w", err)
+		}
+	}
+
+	sm.mu.Lock()
+	currentProcess := sm.mlBackendProcess
+	sm.mu.Unlock()
+
+	healthy := sm.IsMLBackendRunning()
+	if err := rejectUnmanagedHealthyService("ml-backend", sm.config.MLBackendPort, currentProcess, healthy); err != nil {
+		return err
+	}
+	if currentProcess != nil && healthy {
+		return nil
+	}
+	if currentProcess != nil {
+		sm.StopMLBackend()
+	}
+
+	cmd, err := buildMLBackendCommand(launcherPath, pythonPath, scriptPath, sm.config.MLBackendPort)
+	if err != nil {
+		return fmt.Errorf("python runtime is required for ml-backend: %w", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start ml-backend: %w", err)
+	}
+	assignToJob(cmd.Process)
+
+	sm.mu.Lock()
+	sm.mlBackendProcess = cmd.Process
+	sm.mu.Unlock()
+
+	if err := waitForService(localServiceURL(sm.config.MLBackendPort, "/health"), 45*time.Second); err != nil {
+		sm.StopMLBackend()
+		return fmt.Errorf("ml-backend failed to start: %w", err)
+	}
+
+	return nil
+}
+
+func (sm *ServiceManager) StopMLBackend() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if sm.mlBackendProcess != nil {
+		_ = sm.mlBackendProcess.Kill()
+		_, _ = sm.mlBackendProcess.Wait()
+		sm.mlBackendProcess = nil
+	}
+}
+
 func (sm *ServiceManager) IsWhisperRunning() bool {
 	return isServiceHealthy(localServiceURL(sm.config.WhisperPort, "/health"))
 }
@@ -200,8 +270,16 @@ func (sm *ServiceManager) IsLlamaServerRunning() bool {
 	return isServiceHealthy(localServiceURL(sm.config.LlamaServerPort, "/health"))
 }
 
+func (sm *ServiceManager) IsMLBackendRunning() bool {
+	return isServiceHealthy(localServiceURL(sm.config.MLBackendPort, "/health"))
+}
+
 func (sm *ServiceManager) LlamaServerPort() int {
 	return sm.config.LlamaServerPort
+}
+
+func (sm *ServiceManager) MLBackendURL() string {
+	return localServiceBaseURL(sm.config.MLBackendPort)
 }
 
 func isServiceHealthy(url string) bool {
@@ -274,6 +352,30 @@ func buildLlamaCommand(binaryPath, modelPath string, port int) *exec.Cmd {
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = filepath.Dir(binaryPath)
 	return cmd
+}
+
+func buildMLBackendCommand(launcherPath, pythonPath, scriptPath string, port int) (*exec.Cmd, error) {
+	if fileExists(launcherPath) {
+		cmd := exec.Command(launcherPath, "--host", loopbackHost, "--port", fmt.Sprintf("%d", port))
+		cmd.Dir = filepath.Dir(launcherPath)
+		return cmd, nil
+	}
+	if scriptPath == "" {
+		return nil, fmt.Errorf("ml-backend service.py missing")
+	}
+
+	args := []string{scriptPath, "--host", loopbackHost, "--port", fmt.Sprintf("%d", port)}
+	cmd := exec.Command(pythonPath, args...)
+	cmd.Dir = filepath.Dir(scriptPath)
+	return cmd, nil
+}
+
+func fileExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func shouldReuseManagedLlamaProcess(currentProcess *os.Process, currentModel string, expectedModel string, healthy bool) bool {

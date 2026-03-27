@@ -24,6 +24,26 @@ func TestListAvailableLanguagesReturnsStaticPairs(t *testing.T) {
 	}
 }
 
+func TestListCapabilitiesUsesNewDefaults(t *testing.T) {
+	capabilities := listCapabilities()
+
+	if capabilities.Type != "capabilities" {
+		t.Fatalf("Type = %q, want capabilities", capabilities.Type)
+	}
+	if capabilities.Defaults.ASRBackend != "faster_whisper" {
+		t.Fatalf("Defaults.ASRBackend = %q, want faster_whisper", capabilities.Defaults.ASRBackend)
+	}
+	if capabilities.Defaults.TranslationBackend != "nllb" {
+		t.Fatalf("Defaults.TranslationBackend = %q, want nllb", capabilities.Defaults.TranslationBackend)
+	}
+	if len(capabilities.Backends.ASR) < 2 {
+		t.Fatalf("expected at least 2 ASR backends, got %d", len(capabilities.Backends.ASR))
+	}
+	if len(capabilities.Backends.Translation) < 2 {
+		t.Fatalf("expected at least 2 translation backends, got %d", len(capabilities.Backends.Translation))
+	}
+}
+
 func TestLocalServiceBaseURLUsesIPv4Loopback(t *testing.T) {
 	if got := localServiceBaseURL(5000); got != "http://127.0.0.1:5000" {
 		t.Fatalf("localServiceBaseURL() = %q, want %q", got, "http://127.0.0.1:5000")

@@ -47,6 +47,12 @@ func (p *Pipeline) Run(cmd Command) {
 	startTime := time.Now()
 	defer p.stopServices()
 
+	selectedASRBackend := resolveASRBackend(cmd)
+	selectedASRModelID := resolveASRModelID(cmd)
+	selectedTranslationBackend := resolveTranslationBackend(cmd)
+	selectedTranslationModelID := resolveTranslationModelID(cmd)
+	diarizationRequested := cmd.DiarizationEnabled
+
 	// Step 1: Validate input
 	sendStage("validating", "Validating input file...")
 	if err := p.validateInput(cmd.InputVideo); err != nil {
@@ -54,60 +60,60 @@ func (p *Pipeline) Run(cmd Command) {
 		return
 	}
 
-	// Step 2: Download model if missing
-	modelFile := modelFilename(cmd.ModelSize)
 	installDir := preferredWhisperInstallDir(p.svcManager.config.SearchRoots)
-	modelPath := filepath.Join(installDir, "models", modelFile)
+	if selectedASRBackend == "whisper_cpp" {
+		modelFile := modelFilename(cmd.ModelSize)
+		modelPath := filepath.Join(installDir, "models", modelFile)
 
-	if _, err := os.Stat(modelPath); err != nil {
-		if !os.IsNotExist(err) {
-			sendError("Model check failed", fmt.Sprintf("cannot access model at %q: %v", modelPath, err))
-			return
-		}
-		sendStage("downloading_model", fmt.Sprintf("Downloading %s model...", cmd.ModelSize))
-		url := ModelDownloadURL(cmd.ModelSize)
-		if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
-			sendError("Model download failed", err.Error())
-			return
-		}
-		if err := DownloadModel(url, modelPath, func(downloaded, total int64) {
-			if total > 0 {
-				pct := float64(downloaded) / float64(total) * 100
-				sendProgress("downloading_model", pct, fmt.Sprintf("Downloading %s / %s", formatBytes(downloaded), formatBytes(total)))
-			} else {
-				sendProgress("downloading_model", 0, fmt.Sprintf("Downloading %s...", formatBytes(downloaded)))
-			}
-		}); err != nil {
-			sendError("Model download failed", err.Error())
-			return
-		}
-		sendProgress("downloading_model", 100, "Model downloaded")
-	}
-
-	// Step 2b: Download VAD model if needed
-	if cmd.VADFilter {
-		vadModelPath := filepath.Join(installDir, "models", vadModelFilename)
-		if _, err := os.Stat(vadModelPath); err != nil && !os.IsNotExist(err) {
-			sendError("VAD model check failed", fmt.Sprintf("cannot access VAD model at %q: %v", vadModelPath, err))
-			return
-		} else if os.IsNotExist(err) {
-			sendStage("downloading_model", "Downloading VAD model...")
-			if err := os.MkdirAll(filepath.Dir(vadModelPath), 0o755); err != nil {
-				sendError("VAD model download failed", err.Error())
+		if _, err := os.Stat(modelPath); err != nil {
+			if !os.IsNotExist(err) {
+				sendError("Model check failed", fmt.Sprintf("cannot access model at %q: %v", modelPath, err))
 				return
 			}
-			if err := DownloadModel(VADModelDownloadURL(), vadModelPath, func(downloaded, total int64) {
+			sendStage("downloading_model", fmt.Sprintf("Downloading %s model...", cmd.ModelSize))
+			url := ModelDownloadURL(cmd.ModelSize)
+			if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
+				sendError("Model download failed", err.Error())
+				return
+			}
+			if err := DownloadModel(url, modelPath, func(downloaded, total int64) {
 				if total > 0 {
 					pct := float64(downloaded) / float64(total) * 100
-					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading VAD model %s / %s", formatBytes(downloaded), formatBytes(total)))
+					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading %s / %s", formatBytes(downloaded), formatBytes(total)))
 				} else {
-					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading VAD model %s...", formatBytes(downloaded)))
+					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading %s...", formatBytes(downloaded)))
 				}
 			}); err != nil {
-				sendError("VAD model download failed", err.Error())
+				sendError("Model download failed", err.Error())
 				return
 			}
-			sendProgress("downloading_model", 100, "VAD model downloaded")
+			sendProgress("downloading_model", 100, "Model downloaded")
+		}
+
+		if cmd.VADFilter {
+			vadModelPath := filepath.Join(installDir, "models", vadModelFilename)
+			if _, err := os.Stat(vadModelPath); err != nil && !os.IsNotExist(err) {
+				sendError("VAD model check failed", fmt.Sprintf("cannot access VAD model at %q: %v", vadModelPath, err))
+				return
+			} else if os.IsNotExist(err) {
+				sendStage("downloading_model", "Downloading VAD model...")
+				if err := os.MkdirAll(filepath.Dir(vadModelPath), 0o755); err != nil {
+					sendError("VAD model download failed", err.Error())
+					return
+				}
+				if err := DownloadModel(VADModelDownloadURL(), vadModelPath, func(downloaded, total int64) {
+					if total > 0 {
+						pct := float64(downloaded) / float64(total) * 100
+						sendProgress("downloading_model", pct, fmt.Sprintf("Downloading VAD model %s / %s", formatBytes(downloaded), formatBytes(total)))
+					} else {
+						sendProgress("downloading_model", 0, fmt.Sprintf("Downloading VAD model %s...", formatBytes(downloaded)))
+					}
+				}); err != nil {
+					sendError("VAD model download failed", err.Error())
+					return
+				}
+				sendProgress("downloading_model", 100, "VAD model downloaded")
+			}
 		}
 	}
 
@@ -148,6 +154,9 @@ func (p *Pipeline) Run(cmd Command) {
 
 	hasGPU := detectGPU() != "none"
 	estimatedSecs := EstimateTranscriptionSeconds(mediaDuration, cmd.ModelSize, hasGPU)
+	if selectedASRBackend != "whisper_cpp" {
+		estimatedSecs = 0
+	}
 
 	done := make(chan struct{})
 	transcribeStart := time.Now()
@@ -191,27 +200,7 @@ func (p *Pipeline) Run(cmd Command) {
 		}
 	}()
 
-	transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
-	result, err := transcribeWithValidationFallback(
-		transcribePath,
-		cmd.InputVideo,
-		func(path string) (*TranscriptionResult, error) {
-			return transcriber.Transcribe(
-				path,
-				cmd.SourceLang,
-				cmd.BeamSize,
-				cmd.VADFilter,
-			)
-		},
-		func(reason string) {
-			fmt.Fprintf(
-				os.Stderr,
-				"warning: enhanced audio transcription returned no usable subtitle segments, retrying original input: %s\n",
-				reason,
-			)
-			sendStage("transcribing", "Enhanced audio produced no usable transcript, retrying original audio...")
-		},
-	)
+	result, err := p.transcribe(cmd, selectedASRBackend, selectedASRModelID, transcribePath)
 	close(done)
 
 	if err != nil {
@@ -222,16 +211,32 @@ func (p *Pipeline) Run(cmd Command) {
 	sendProgress("transcribing", 100, fmt.Sprintf("Transcribed %d segments", len(result.Segments)))
 
 	segments := result.Segments
+	diarizationRan := false
+	var speakerCount *int
+
+	if diarizationRequested {
+		sendStage("diarizing", "Labeling speakers...")
+		annotatedSegments, count, annotateErr := p.annotateDiarization(transcribePath, segments)
+		if annotateErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: diarization failed, continuing without speaker labels: %v\n", annotateErr)
+			sendStage("diarizing", "Speaker labeling unavailable, continuing without speaker labels")
+		} else {
+			segments = annotatedSegments
+			diarizationRan = true
+			speakerCount = &count
+			sendProgress("diarizing", 100, fmt.Sprintf("Detected %d speaker(s)", count))
+		}
+	}
 
 	// Step 5b: Write diagnostic transcription log (before translation overwrites segments)
 	var transcriptionLogPath string
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
 		logPath := DeriveTranscriptionLogPath(cmd.InputVideo)
 		sourceLang := result.Language
-		if cmd.SourceLang != nil && *cmd.SourceLang != "" {
+		if cmd.SourceLang != nil && *cmd.SourceLang != "" && *cmd.SourceLang != "auto" {
 			sourceLang = *cmd.SourceLang
 		}
-		if err := WriteTranscriptionLog(result.Segments, logPath, sourceLang); err != nil {
+		if err := WriteTranscriptionLog(segments, logPath, sourceLang); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to write transcription log to %q: %v\n", logPath, err)
 		} else {
 			transcriptionLogPath = logPath
@@ -239,74 +244,27 @@ func (p *Pipeline) Run(cmd Command) {
 	}
 
 	// Step 6: Translate (if target language specified)
-	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
+	if cmd.TargetLang != nil && *cmd.TargetLang != "" && selectedTranslationBackend != "none" {
 		sendStage("translating", fmt.Sprintf("Translating to %s...", *cmd.TargetLang))
 
 		// Determine source language
 		sourceLang := "auto"
-		if cmd.SourceLang != nil && *cmd.SourceLang != "" {
+		if cmd.SourceLang != nil && *cmd.SourceLang != "" && *cmd.SourceLang != "auto" {
 			sourceLang = *cmd.SourceLang
 		} else if result.Language != "" {
 			sourceLang = result.Language
 		}
-
-		if !supportsTranslationPair(sourceLang, *cmd.TargetLang) {
-			sendError(
-				"Translation failed",
-				fmt.Sprintf(
-					"translation pair %s -> %s is not supported by GemmaTranslate",
-					sourceLang,
-					*cmd.TargetLang,
-				),
-			)
+		if selectedTranslationBackend == defaultTranslationBackend && sourceLang == "auto" {
+			sendError("Translation failed", "Could not determine the source language for NLLB translation. Choose a source language explicitly or retry with clearer speech.")
 			return
 		}
 
-		llamaDir := preferredLlamaInstallDir(p.svcManager.config.SearchRoots)
-		gemmaModelPath := filepath.Join(llamaDir, "models", gemmaModelFilenameConst)
-		if _, err := os.Stat(gemmaModelPath); err != nil {
-			if !os.IsNotExist(err) {
-				sendError("Translation model check failed", fmt.Sprintf("cannot access model at %q: %v", gemmaModelPath, err))
-				return
-			}
-			sendStage("downloading_model", "Downloading translation model (~7 GB)...")
-			if err := os.MkdirAll(filepath.Dir(gemmaModelPath), 0o755); err != nil {
-				sendError("Translation model download failed", err.Error())
-				return
-			}
-			if err := DownloadModel(GemmaModelDownloadURL(), gemmaModelPath, func(downloaded, total int64) {
-				if total > 0 {
-					pct := float64(downloaded) / float64(total) * 100
-					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading translation model %s / %s", formatBytes(downloaded), formatBytes(total)))
-				} else {
-					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading translation model %s...", formatBytes(downloaded)))
-				}
-			}); err != nil {
-				sendError("Translation model download failed", err.Error())
-				return
-			}
-			sendProgress("downloading_model", 100, "Translation model downloaded")
-		}
-
-		// Stop whisper-server to free GPU VRAM before starting llama-server
-		p.svcManager.StopWhisperServer()
-
-		sendProgress("translating", 0, "Starting translation engine...")
-		if err := p.svcManager.StartLlamaServer(); err != nil {
-			sendError("Translation engine startup failed", err.Error())
-			return
-		}
-
-		translator := NewTranslator(p.svcManager.config.LlamaServerPort)
-
-		translated, err := translator.TranslateSegments(
+		translated, err := p.translateSegments(
+			selectedTranslationBackend,
+			selectedTranslationModelID,
 			segments,
 			sourceLang,
 			*cmd.TargetLang,
-			func(current, total int) {
-				pct := float64(current) / float64(total) * 100
-				sendProgress("translating", pct, fmt.Sprintf("Translated %d/%d segments", current, total))
-			},
 		)
 		if err != nil {
 			sendError("Translation failed", err.Error())
@@ -340,11 +298,15 @@ func (p *Pipeline) Run(cmd Command) {
 	// Done
 	duration := time.Since(startTime).Seconds()
 	sendJSON(CompleteResponse{
-		Type:             "complete",
-		OutputPath:       outputPath,
-		TranscriptionLog: transcriptionLogPath,
-		Segments:         len(segments),
-		DurationSecs:     duration,
+		Type:               "complete",
+		OutputPath:         outputPath,
+		TranscriptionLog:   transcriptionLogPath,
+		Segments:           len(segments),
+		DurationSecs:       duration,
+		BackendSummary:     buildBackendSummary(selectedASRBackend, selectedTranslationBackend, diarizationRan),
+		SelectedASRBackend: selectedASRBackend,
+		DiarizationRan:     diarizationRan,
+		SpeakerCount:       speakerCount,
 	})
 }
 
@@ -369,11 +331,100 @@ func (p *Pipeline) validateInput(path string) error {
 	return nil
 }
 
+func (p *Pipeline) transcribe(cmd Command, backend, modelID, transcribePath string) (*TranscriptionResult, error) {
+	switch backend {
+	case "whisper_cpp":
+		transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
+		return transcribeWithValidationFallback(
+			transcribePath,
+			cmd.InputVideo,
+			func(path string) (*TranscriptionResult, error) {
+				return transcriber.Transcribe(
+					path,
+					cmd.SourceLang,
+					cmd.BeamSize,
+					cmd.VADFilter,
+				)
+			},
+			func(reason string) {
+				fmt.Fprintf(
+					os.Stderr,
+					"warning: enhanced audio transcription returned no usable subtitle segments, retrying original input: %s\n",
+					reason,
+				)
+				sendStage("transcribing", "Enhanced audio produced no usable transcript, retrying original audio...")
+			},
+		)
+	default:
+		client := NewMLBackendClient(p.svcManager.MLBackendURL())
+		result, err := client.Transcribe(transcribePath, cmd.SourceLang, modelID, cmd.BeamSize, cmd.VADFilter)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateTranscriptionResult(result); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+func (p *Pipeline) annotateDiarization(audioPath string, segments []Segment) ([]Segment, int, error) {
+	if err := p.svcManager.StartMLBackend(); err != nil {
+		return nil, 0, err
+	}
+	client := NewMLBackendClient(p.svcManager.MLBackendURL())
+	return client.AnnotateDiarization(audioPath, segments)
+}
+
+func (p *Pipeline) translateSegments(backend, modelID string, segments []Segment, sourceLang, targetLang string) ([]Segment, error) {
+	switch backend {
+	case gemmaTranslationBackend:
+		if !supportsTranslationPair(sourceLang, targetLang) {
+			return nil, fmt.Errorf("translation pair %s -> %s is not supported by GemmaTranslate", sourceLang, targetLang)
+		}
+
+		llamaDir := preferredLlamaInstallDir(p.svcManager.config.SearchRoots)
+		gemmaModelPath := filepath.Join(llamaDir, "models", gemmaModelFilenameConst)
+		if _, err := os.Stat(gemmaModelPath); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("cannot access model at %q: %v", gemmaModelPath, err)
+			}
+			if err := os.MkdirAll(filepath.Dir(gemmaModelPath), 0o755); err != nil {
+				return nil, err
+			}
+			if err := DownloadModel(GemmaModelDownloadURL(), gemmaModelPath, nil); err != nil {
+				return nil, err
+			}
+		}
+
+		p.svcManager.StopWhisperServer()
+		if err := p.svcManager.StartLlamaServer(); err != nil {
+			return nil, err
+		}
+
+		translator := NewTranslator(p.svcManager.config.LlamaServerPort)
+		return translator.TranslateSegments(segments, sourceLang, targetLang, nil)
+	default:
+		if err := p.svcManager.StartMLBackend(); err != nil {
+			return nil, err
+		}
+		client := NewMLBackendClient(p.svcManager.MLBackendURL())
+		return client.TranslateSegments(segments, sourceLang, targetLang, modelID)
+	}
+}
+
 func (p *Pipeline) ensureServices(cmd Command) error {
-	// Start whisper-server for transcription (llama-server starts later, just before translation)
-	sendProgress("starting_services", 25, "Starting whisper-server...")
-	if err := p.svcManager.StartWhisperServer(cmd.ModelSize); err != nil {
-		return fmt.Errorf("whisper-server: %w", err)
+	switch resolveASRBackend(cmd) {
+	case "whisper_cpp":
+		sendProgress("starting_services", 25, "Starting whisper-server...")
+		if err := p.svcManager.StartWhisperServer(cmd.ModelSize); err != nil {
+			return fmt.Errorf("whisper-server: %w", err)
+		}
+	default:
+		sendProgress("starting_services", 25, "Starting ml-backend...")
+		if err := p.svcManager.StartMLBackend(); err != nil {
+			return fmt.Errorf("ml-backend: %w", err)
+		}
 	}
 	sendProgress("starting_services", 100, "All services ready")
 

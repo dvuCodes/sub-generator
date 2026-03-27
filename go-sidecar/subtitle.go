@@ -55,7 +55,7 @@ func (sw *SubtitleWriter) Write(segments []Segment, outputPath string, format st
 			Lines: []astisub.Line{
 				{
 					Items: []astisub.LineItem{
-						{Text: strings.TrimSpace(seg.Text)},
+						{Text: formatSegmentText(seg)},
 					},
 				},
 			},
@@ -150,10 +150,18 @@ func WriteTranscriptionLog(segments []Segment, outputPath string, sourceLang str
 	for _, seg := range segments {
 		start := formatTimestamp(seg.Start)
 		end := formatTimestamp(seg.End)
-		fmt.Fprintf(f, "[%s --> %s] %s\n", start, end, strings.TrimSpace(seg.Text))
+		fmt.Fprintf(f, "[%s --> %s] %s\n", start, end, formatSegmentText(seg))
 	}
 
 	return nil
+}
+
+func formatSegmentText(seg Segment) string {
+	text := strings.TrimSpace(seg.Text)
+	if seg.SpeakerLabel == "" {
+		return text
+	}
+	return fmt.Sprintf("[%s] %s", seg.SpeakerLabel, text)
 }
 
 func formatTimestamp(seconds float64) string {
