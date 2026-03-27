@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 )
 
@@ -101,11 +102,67 @@ func TestCheckFFmpeg_Missing(t *testing.T) {
 	}
 }
 
+func TestCheckFFmpeg_MissingIncludesFrontendMetadata(t *testing.T) {
+	status := checkFFmpegWith(func(name, display string) error {
+		return fmt.Errorf("%s not found in PATH", display)
+	})
+
+	if status.DisplayName != "ffmpeg" {
+		t.Fatalf("expected display name ffmpeg, got %q", status.DisplayName)
+	}
+	if status.RequiredFor != "transcription" {
+		t.Fatalf("expected required_for transcription, got %q", status.RequiredFor)
+	}
+	if len(status.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(status.Actions))
+	}
+	if status.Actions[0].Guidance == "" {
+		t.Fatal("expected manual action guidance to be populated")
+	}
+}
+
 func TestCheckFFmpeg_Present(t *testing.T) {
 	status := checkFFmpegWith(func(name, display string) error {
 		return nil
 	})
 	if status.State != "ready" {
 		t.Errorf("expected ready, got %q", status.State)
+	}
+}
+
+func TestCheckService_MissingBinaryIncludesActionsAndFrontendMetadata(t *testing.T) {
+	registry := NewActionRegistry()
+	installDir := t.TempDir()
+	missingBinary := filepath.Join(t.TempDir(), "whisper-server")
+
+	status := checkService(
+		"whisper",
+		"whisper-server",
+		"transcription",
+		missingBinary,
+		whisperDownloadActions(false, installDir),
+		registry,
+	)
+
+	if status.DisplayName != "whisper-server" {
+		t.Fatalf("expected display name whisper-server, got %q", status.DisplayName)
+	}
+	if status.RequiredFor != "transcription" {
+		t.Fatalf("expected required_for transcription, got %q", status.RequiredFor)
+	}
+	if status.State != "action_required" {
+		t.Fatalf("expected action_required, got %q", status.State)
+	}
+	if len(status.Issues) != 1 || status.Issues[0].Code != "binary_not_found" {
+		t.Fatalf("expected binary_not_found issue, got %+v", status.Issues)
+	}
+	if len(status.Actions) == 0 {
+		t.Fatal("expected install actions for missing binary")
+	}
+	if status.Actions[0].Kind != "archive" {
+		t.Fatalf("expected archive action kind, got %q", status.Actions[0].Kind)
+	}
+	if _, err := registry.Resolve(status.Actions[0].ID); err != nil {
+		t.Fatalf("expected registered action, got error: %v", err)
 	}
 }
