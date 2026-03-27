@@ -13,21 +13,25 @@ interface ProcessingViewProps {
   onStop?: () => void;
   stopDisabled?: boolean;
   stopLabel?: string;
+  stageOrder?: string[];
+  stageLabels?: Record<string, string>;
 }
 
-const STAGE_ORDER = [
+const DEFAULT_STAGE_ORDER = [
   "validating",
   "downloading_model",
   "starting_services",
+  "preprocessing",
   "transcribing",
   "translating",
   "writing",
 ];
 
-const STAGE_LABELS: Record<string, string> = {
+const DEFAULT_STAGE_LABELS: Record<string, string> = {
   validating: "Validate",
   downloading_model: "Download",
   starting_services: "Services",
+  preprocessing: "Enhance",
   transcribing: "Transcribe",
   translating: "Translate",
   writing: "Write",
@@ -52,8 +56,12 @@ export function ProcessingView({
   onStop,
   stopDisabled = false,
   stopLabel = "Stop",
+  stageOrder,
+  stageLabels,
 }: ProcessingViewProps) {
-  const currentIndex = STAGE_ORDER.indexOf(stage);
+  const stages = stageOrder ?? DEFAULT_STAGE_ORDER;
+  const labels = stageLabels ?? DEFAULT_STAGE_LABELS;
+  const currentIndex = stages.indexOf(stage);
   const isDeterminate = typeof percent === "number";
   const displayPercent = isDeterminate ? Math.round(percent) : null;
 
@@ -61,7 +69,7 @@ export function ProcessingView({
     <div className="space-y-5">
       {/* Stage pipeline */}
       <div className="flex items-center gap-1">
-        {STAGE_ORDER.map((s, i) => {
+        {stages.map((s, i) => {
           const isActive = i === currentIndex;
           const isComplete = i < currentIndex;
 
@@ -88,10 +96,10 @@ export function ProcessingView({
                     isActive ? "text-foreground" : "text-muted-foreground"
                   )}
                 >
-                  {STAGE_LABELS[s] ?? s}
+                  {labels[s] ?? s}
                 </span>
               </div>
-              {i < STAGE_ORDER.length - 1 && (
+              {i < stages.length - 1 && (
                 <div
                   className={cn(
                     "mb-5 h-px flex-1 transition-colors",

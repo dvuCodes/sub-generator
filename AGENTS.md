@@ -29,6 +29,7 @@
 - The bundled `whisper-server` returns subtitle-ready timestamps only with `response_format=verbose_json`; parse current `segments[].start`/`end` values as seconds, and keep legacy `t0`/`t1` millisecond parsing only as a fallback.
 - If `whisper-server` returns zero segments, fail in the pipeline with explicit no-speech / missing-timestamps guidance before the subtitle writer runs; do not surface `astisub: no subtitles to write` directly.
 - If `whisper-server` returns a mix of usable and unusable segment timings, drop only the unusable segments and continue; fail only when no subtitle-safe timed segments remain.
+- If enhanced audio preprocessing yields VAD activity but Whisper still returns no usable transcript segments, retry transcription once on the original input before surfacing a no-speech / missing-timestamps error.
 - The Go sidecar pipeline must stop managed `whisper-server` / `llama-server` processes on every terminal path itself; do not rely on the frontend to send `stop_services` after `complete` or `error`, or VRAM can remain allocated if that round-trip is missed.
 - For this desktop-only Tauri app, avoid `staticlib` in `src-tauri/Cargo.toml`; it produces a massive `app_lib.lib` on Windows and can fail rebuilds with archive rename access errors.
 - If Windows dev builds lock `subgen.pdb`, disable dev debug info in `src-tauri/Cargo.toml` (`[profile.dev] debug = 0`) rather than fighting repeated PDB replace failures.

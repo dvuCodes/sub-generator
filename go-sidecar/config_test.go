@@ -225,7 +225,7 @@ func TestAudioConfig_DeserializeMissing(t *testing.T) {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	if cmd.AudioConfig.Enabled {
-		t.Error("expected zero-value Enabled=false when missing from JSON")
+	if cmd.AudioConfig != nil {
+		t.Error("expected AudioConfig to be nil when missing from JSON")
 	}
 }
