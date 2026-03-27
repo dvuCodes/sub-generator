@@ -1,8 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -169,14 +175,17 @@ func TestCheckService_MissingBinaryIncludesActionsAndFrontendMetadata(t *testing
 
 func TestMLBackendDownloadActions(t *testing.T) {
 	actions := mlBackendDownloadActions(filepath.Join(t.TempDir(), "services", "ml-backend"))
-	if len(actions) != 1 {
-		t.Fatalf("expected 1 ml-backend action, got %d", len(actions))
+	if len(actions) != 2 {
+		t.Fatalf("expected 2 ml-backend actions, got %d", len(actions))
 	}
 	if actions[0].ServiceID != "ml-backend" {
 		t.Fatalf("expected ServiceID ml-backend, got %q", actions[0].ServiceID)
 	}
-	if actions[0].ExpectedBinary == "" {
-		t.Fatal("expected binary launcher to be populated")
+	if actions[0].Kind != "command" {
+		t.Fatalf("expected first action to be command, got %q", actions[0].Kind)
+	}
+	if actions[1].Kind != "manual" {
+		t.Fatalf("expected second action to be manual, got %q", actions[1].Kind)
 	}
 }
 
@@ -202,5 +211,90 @@ func TestCheckSetupIncludesMLBackendService(t *testing.T) {
 
 	if !found {
 		t.Fatal("expected ml-backend to be reported in setup status")
+	}
+}
+
+func TestPreferredMLBackendInstallDirPrefersCompleteBackendOverPlaceholder(t *testing.T) {
+	root := t.TempDir()
+
+	placeholderDir := filepath.Join(root, "services", "ml-backend")
+	if err := os.MkdirAll(filepath.Join(placeholderDir, "models"), 0o755); err != nil {
+		t.Fatalf("mkdir placeholder: %v", err)
+	}
+
+	pythonBackendDir := filepath.Join(root, "python-backend")
+	if err := os.MkdirAll(pythonBackendDir, 0o755); err != nil {
+		t.Fatalf("mkdir python-backend: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pythonBackendDir, "service.py"), []byte("print('ok')\n"), 0o644); err != nil {
+		t.Fatalf("write service.py: %v", err)
+	}
+
+	if got := preferredMLBackendInstallDir([]string{root}); got != pythonBackendDir {
+		t.Fatalf("expected python-backend dir %q, got %q", pythonBackendDir, got)
+	}
+}
+
+func TestCheckMLBackendReportsMissingFasterWhisperDependency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/capabilities" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(CapabilitiesResponse{
+			Type: "capabilities",
+			Defaults: BackendDefaults{
+				ASRBackend:         "faster_whisper",
+				ASRModelID:         "deepdml/faster-whisper-large-v3-turbo-ct2",
+				TranslationBackend: "nllb",
+			},
+			Backends: BackendCapabilities{
+				ASR: []ASRBackendCapability{
+					{
+						ID:          "faster_whisper",
+						DisplayName: "Faster Whisper",
+						Installed:   false,
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	pythonBackendDir := filepath.Join(root, "python-backend")
+	if err := os.MkdirAll(pythonBackendDir, 0o755); err != nil {
+		t.Fatalf("mkdir python-backend: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pythonBackendDir, "service.py"), []byte("print('ok')\n"), 0o644); err != nil {
+		t.Fatalf("write service.py: %v", err)
+	}
+
+	portText := strings.TrimPrefix(server.URL, "http://127.0.0.1:")
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse port %q: %v", portText, err)
+	}
+
+	status := checkMLBackend(
+		ServiceConfig{SearchRoots: []string{root}, MLBackendPort: port},
+		NewActionRegistry(),
+		mlBackendDownloadActions(pythonBackendDir),
+	)
+
+	if status.State != "action_required" {
+		t.Fatalf("expected action_required, got %q", status.State)
+	}
+	if len(status.Issues) == 0 || !strings.Contains(status.Issues[0].ObservedError, "faster-whisper Python dependency is missing") {
+		t.Fatalf("expected faster-whisper dependency guidance, got %+v", status.Issues)
+	}
+	if len(status.Actions) < 2 {
+		t.Fatalf("expected command and manual setup actions, got %+v", status.Actions)
+	}
+	if status.Actions[0].Kind != "command" {
+		t.Fatalf("expected first setup action to be command, got %+v", status.Actions)
+	}
+	if status.Actions[1].Kind != "manual" {
+		t.Fatalf("expected second setup action to be manual, got %+v", status.Actions)
 	}
 }

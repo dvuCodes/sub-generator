@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -93,7 +94,24 @@ def detect_device() -> str:
         return "cpu"
 
 
+def module_available(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
+def faster_whisper_available() -> bool:
+    return module_available("faster_whisper")
+
+
+def nllb_available() -> bool:
+    return module_available("transformers") and (
+        module_available("ctranslate2") or module_available("torch")
+    )
+
+
 def build_capabilities() -> dict[str, Any]:
+    asr_available = faster_whisper_available()
+    translation_available = nllb_available()
+
     return {
         "type": "capabilities",
         "defaults": {
@@ -107,7 +125,7 @@ def build_capabilities() -> dict[str, Any]:
                 {
                     "id": "faster_whisper",
                     "display_name": "Faster Whisper",
-                    "installed": True,
+                    "installed": asr_available,
                     "default_model_id": DEFAULT_ASR_MODEL_ID,
                     "source_languages": [{"code": "auto", "name": "Auto-detect"}, *COMMON_LANGUAGES],
                 },
@@ -123,7 +141,7 @@ def build_capabilities() -> dict[str, Any]:
                 {
                     "id": "nllb",
                     "display_name": "NLLB",
-                    "installed": True,
+                    "installed": translation_available,
                     "default_model_id": DEFAULT_TRANSLATION_MODEL_ID,
                     "target_languages": COMMON_LANGUAGES,
                 },

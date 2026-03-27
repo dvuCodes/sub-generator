@@ -20,6 +20,32 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(capabilities["defaults"]["asr_backend"], "faster_whisper")
         self.assertEqual(capabilities["defaults"]["translation_backend"], "nllb")
 
+    def test_build_capabilities_marks_missing_optional_backends_unavailable(self):
+        original_importlib = getattr(service, "importlib", None)
+        service.importlib = SimpleNamespace(
+            util=SimpleNamespace(
+                find_spec=lambda name: None
+                if name in {"faster_whisper", "ctranslate2", "transformers", "torch"}
+                else object()
+            )
+        )
+        try:
+            capabilities = service.build_capabilities()
+        finally:
+            if original_importlib is None:
+                delattr(service, "importlib")
+            else:
+                service.importlib = original_importlib
+
+        asr = {backend["id"]: backend["installed"] for backend in capabilities["backends"]["asr"]}
+        translation = {
+            backend["id"]: backend["installed"]
+            for backend in capabilities["backends"]["translation"]
+        }
+
+        self.assertFalse(asr["faster_whisper"])
+        self.assertFalse(translation["nllb"])
+
     def test_dominant_speaker_prefers_largest_overlap(self):
         class Turn:
             def __init__(self, start, end):

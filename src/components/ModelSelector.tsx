@@ -121,9 +121,13 @@ export function ModelSelector({
       id: backend.id,
       label: backendLabel(backend.display_name, backend.installed),
       description:
-        backend.id === "nllb"
-          ? "Deterministic multilingual subtitle translation"
-          : "Context-aware rewriting with Gemma",
+        backend.installed
+          ? backend.id === "nllb"
+            ? "Deterministic multilingual subtitle translation"
+            : "Context-aware rewriting with Gemma"
+          : backend.id === "nllb"
+            ? "Requires the ML backend. See setup guidance above."
+            : "Requires the ML backend and llama.cpp. See setup guidance above.",
       installed: backend.installed,
     })),
   ];

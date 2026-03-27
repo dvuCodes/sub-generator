@@ -150,7 +150,7 @@ func runInstallDependency(actionID string, svcManager *ServiceManager) {
 		return
 	}
 
-	if err := DownloadAndExtractArchive(action, svcManager, func(downloaded, total int64) {
+	if err := runInstallAction(action, svcManager, func(downloaded, total int64) {
 		if total > 0 {
 			pct := float64(downloaded) / float64(total) * 100
 			sendProgress("downloading_dependency", pct, fmt.Sprintf("Downloading %s / %s", formatBytes(downloaded), formatBytes(total)))

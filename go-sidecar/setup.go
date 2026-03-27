@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const fasterWhisperDependencySetupGuidance = `faster-whisper Python dependency is missing. Install the packages from "python-backend\requirements.txt" into the Python runtime used by the ML backend, then restart SubGen.`
+
 // --- IPC response types for setup_status ---
 
 type SetupStatusResponse struct {
@@ -34,7 +36,7 @@ type ServiceAction struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
 	Description string `json:"description"`
-	Kind        string `json:"kind"` // "archive" | "manual"
+	Kind        string `json:"kind"` // "archive" | "manual" | "command"
 	Preferred   bool   `json:"preferred,omitempty"`
 	Guidance    string `json:"guidance,omitempty"`
 }
@@ -53,6 +55,7 @@ type Action struct {
 	Preferred       bool
 	Guidance        string
 	ServiceID       string
+	Command         string
 }
 
 func (a Action) toServiceAction() ServiceAction {
@@ -266,11 +269,22 @@ func llamaDownloadActions(hasGPU bool, installDir string) []Action {
 func mlBackendDownloadActions(installDir string) []Action {
 	return []Action{
 		{
+			ID:              "ml-backend/install_python_dependencies",
+			Kind:            "command",
+			Label:           "Install Python dependencies",
+			Description:     "Install missing ML backend Python packages automatically.",
+			Guidance:        "SubGen will run python -m pip install -r requirements.txt using the ML backend runtime after you confirm.",
+			InstallDir:      installDir,
+			Preferred:       true,
+			ServiceID:       "ml-backend",
+			Command:         "install_ml_backend_requirements",
+		},
+		{
 			ID:              "ml-backend/install_bundle",
 			Kind:            "manual",
 			Label:           "Install ML backend bundle",
-			Description:     "Ensure services/ml-backend is present and Python can launch the bundled backend.",
-			Guidance:        "Packaged builds bundle services/ml-backend automatically. In dev, keep services/ml-backend in the repo and ensure python is available on PATH or under services/ml-backend/runtime/.",
+			Description:     "Make the Python ML backend launchable for Faster Whisper, NLLB, and diarization.",
+			Guidance:        "In dev, keep python-backend/service.py in the repo, ensure python is available on PATH, and install python-backend/requirements.txt into that runtime. Packaged builds stage the same files under services/ml-backend/; if that folder only has models/, restore the backend files or run from python-backend instead.",
 			InstallDir:      installDir,
 			StripComponents: 0,
 			ExpectedBinary:  mlBackendLauncherName(),
@@ -362,6 +376,17 @@ func checkMLBackend(config ServiceConfig, registry *ActionRegistry, actions []Ac
 	scriptPath := resolveMLBackendScriptPath(config.SearchRoots)
 	pythonPath := resolveMLBackendPython(config.SearchRoots)
 	if fileExists(launcherPath) || (scriptPath != "" && validateCommandAvailability(pythonPath, "python") == nil) {
+		if capabilities, err := mlBackendCapabilitiesForSetup(config); err == nil && !mlBackendASRInstalled(capabilities) {
+			return serviceStatusWithActions(
+				"ml-backend",
+				"ml-backend",
+				"transcription",
+				ServiceIssue{Code: "binary_not_runnable", ObservedError: fasterWhisperDependencySetupGuidance},
+				registry,
+				actions,
+			)
+		}
+
 		return ServiceStatus{
 			ID:          "ml-backend",
 			DisplayName: "ml-backend",
@@ -372,14 +397,28 @@ func checkMLBackend(config ServiceConfig, registry *ActionRegistry, actions []Ac
 		}
 	}
 
+	return serviceStatusWithActions(
+		"ml-backend",
+		"ml-backend",
+		"transcription",
+		ServiceIssue{Code: "binary_not_found"},
+		registry,
+		actions,
+	)
+}
+
+func serviceStatusWithActions(
+	id, displayName, requiredFor string,
+	issue ServiceIssue,
+	registry *ActionRegistry,
+	actions []Action,
+) ServiceStatus {
 	status := ServiceStatus{
-		ID:          "ml-backend",
-		DisplayName: "ml-backend",
-		RequiredFor: "transcription",
+		ID:          id,
+		DisplayName: displayName,
+		RequiredFor: requiredFor,
 		State:       "action_required",
-		Issues: []ServiceIssue{
-			{Code: "binary_not_found"},
-		},
+		Issues:      []ServiceIssue{issue},
 	}
 
 	if registry != nil {
@@ -390,4 +429,33 @@ func checkMLBackend(config ServiceConfig, registry *ActionRegistry, actions []Ac
 	}
 
 	return status
+}
+
+func mlBackendCapabilitiesForSetup(config ServiceConfig) (*CapabilitiesResponse, error) {
+	client := NewMLBackendClient(localServiceBaseURL(config.MLBackendPort))
+	if capabilities, err := client.Capabilities(); err == nil {
+		return capabilities, nil
+	}
+
+	manager := NewServiceManager(config)
+	if err := manager.StartMLBackend(); err != nil {
+		return nil, err
+	}
+	defer manager.StopMLBackend()
+
+	return NewMLBackendClient(manager.MLBackendURL()).Capabilities()
+}
+
+func mlBackendASRInstalled(capabilities *CapabilitiesResponse) bool {
+	if capabilities == nil {
+		return true
+	}
+
+	for _, backend := range capabilities.Backends.ASR {
+		if backend.ID == defaultASRBackend {
+			return backend.Installed
+		}
+	}
+
+	return true
 }

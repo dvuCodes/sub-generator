@@ -27,7 +27,10 @@ import {
 } from "./lib/processingState";
 import { formatRuntimeError } from "./lib/runtimeError";
 import { SetupBanner } from "./components/SetupBanner";
-import { shouldDisableGenerate } from "./lib/setupHelpers";
+import {
+  findPromptableInstallAction,
+  shouldDisableGenerate,
+} from "./lib/setupHelpers";
 import {
   advanceInstallState,
   createInitialInstallState,
@@ -182,6 +185,7 @@ function App() {
 
   const installStateRef = useRef(installState);
   installStateRef.current = installState;
+  const promptedInstallActionsRef = useRef(new Set<string>());
 
   useEffect(() => {
     connect().catch((err) => {
@@ -447,6 +451,43 @@ function App() {
     [sendCommand]
   );
 
+  const requestInstall = useCallback(
+    async (actionId: string, options?: { prompt?: boolean }) => {
+      try {
+        const action = setupStatus?.services
+          .flatMap((service) => service.actions)
+          .find((candidate) => candidate.id === actionId);
+
+        if (options?.prompt !== false && action?.kind === "command") {
+          const { confirm } = await import("@tauri-apps/plugin-dialog");
+          const accepted = await confirm(
+            [
+              action.description,
+              action.guidance ?? "SubGen will install the missing dependencies automatically.",
+              "Do you want SubGen to install them now?",
+            ].join("\n\n"),
+            {
+              title: "Install Missing Dependencies",
+              kind: "warning",
+              okLabel: "Install",
+              cancelLabel: "Not now",
+            }
+          );
+
+          if (!accepted) {
+            return;
+          }
+        }
+
+        await handleInstall(actionId);
+      } catch (err) {
+        setErrorMsg(`Failed to start install: ${err}`);
+        setAppState("error");
+      }
+    },
+    [handleInstall, setupStatus]
+  );
+
   const handleASRBackendChange = useCallback(
     (backend: ASRBackend) => {
       setAsrBackend(backend);
@@ -473,6 +514,21 @@ function App() {
   );
 
   const isProcessing = appState === "processing";
+
+  useEffect(() => {
+    if (appState !== "idle") {
+      return;
+    }
+
+    const action = findPromptableInstallAction(setupStatus);
+    if (!action || promptedInstallActionsRef.current.has(action.id)) {
+      return;
+    }
+
+    promptedInstallActionsRef.current.add(action.id);
+    void requestInstall(action.id);
+  }, [appState, requestInstall, setupStatus]);
+
   const translationStatus =
     selectedTranslationBackend === "none"
       ? "Source-only subtitles. Translation is disabled."
@@ -584,10 +640,16 @@ function App() {
             message={installState.message}
             elapsedSecs={null}
             etaSecs={null}
-            stageOrder={["downloading_dependency", "extracting", "validating"]}
+            stageOrder={[
+              "downloading_dependency",
+              "extracting",
+              "installing_dependency",
+              "validating",
+            ]}
             stageLabels={{
               downloading_dependency: "Download",
               extracting: "Extract",
+              installing_dependency: "Install",
               validating: "Validate",
             }}
           />
@@ -596,7 +658,7 @@ function App() {
             {setupStatus && (
               <SetupBanner
                 setupStatus={setupStatus}
-                onInstall={handleInstall}
+                onInstall={requestInstall}
                 disabled={appState === "installing"}
               />
             )}
