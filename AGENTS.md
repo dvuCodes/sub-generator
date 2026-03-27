@@ -15,6 +15,7 @@
 - For `tauri dev`, avoid rebuilding or recopying the sidecar on unrelated Rust/UI changes; only refresh the dev copies when `go-sidecar/` is newer, otherwise Windows can fail on a locked `subgen-sidecar.exe`.
 - In WSL/Linux dev shells, ensure `go` is installed and on `PATH` before running `tauri dev`; the sidecar is built from `go-sidecar/` during the Tauri build and otherwise fails before the app starts.
 - If WSL package installs are blocked by missing `sudo` access, a user-local Go install under `$HOME/.local/go/bin` is sufficient for `go test ./...` and `tauri dev` as long as that path is exported before running the toolchain.
+- If `bun` is not on the WSL `PATH`, use the existing Windows install at `/mnt/c/Users/datvu/.bun/bin/bun.exe` for frontend tests such as `bun test`.
 - If a dev sidecar copy is locked during `tauri dev`, warn and continue the rebuild; only require the user to close the active app when they need the newly built sidecar binary to replace the locked one.
 - For `tauri dev`, keep `bundle.externalBin` enabled for packaging but override it out of `TAURI_CONFIG` in debug builds; otherwise `tauri-build` can panic trying to delete a locked sidecar in `src-tauri/target/dev-tauri/debug/`.
 - For `tauri dev`, do not assume refreshing `src-tauri/subgen-sidecar-<target>.exe` is enough; also sync the built sidecar into `src-tauri/target/debug/` and `src-tauri/target/dev-tauri/debug/` so the running dev app does not reuse a stale sidecar.
@@ -40,6 +41,9 @@
 - For loopback `whisper-server` HTTP calls, stage multipart uploads in a temp file and send them as fixed-length request bodies; `io.Pipe` streaming uploads can still fail with `use of closed network connection` on real transcription files even when a small probe file succeeds.
 - Treat `list_languages` as static capability metadata only; do not use it as proof that the translation engine is installed or running.
 - When testing streamed Go HTTP request bodies, do not rely on `ContentLength`; assert the streaming mechanism itself (for example `io.PipeReader`) or read behavior instead.
+- Treat `python-backend/` as the canonical ML backend source tree and `services/ml-backend/` as a staged runtime mirror/cache root; do not maintain a second Python implementation under `services/ml-backend/`.
+- Keep the Python ML backend launcher scripts pointed at the staged root `service.py`; the build copies `python-backend/` as-is and does not wrap it under an extra `app/` directory.
+- Do not list the staged `src-tauri/resources/ml-backend` tree in `tauri.conf.json` for dev builds; Tauri will watch it and can loop forever if `build.rs` refreshes those files. Inject packaged ML-backend resources from `build.rs` only for non-debug builds.
 - When making file edits, use the Codex `apply_patch` tool (do not embed `apply_patch` inside shell commands).
 - Do not propose follow-up tasks or enhancements at the end of your final answer.
 - When working on frontend design, use playwright to test and confirm desired feature implemention.

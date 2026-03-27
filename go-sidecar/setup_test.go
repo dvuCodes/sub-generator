@@ -166,3 +166,41 @@ func TestCheckService_MissingBinaryIncludesActionsAndFrontendMetadata(t *testing
 		t.Fatalf("expected registered action, got error: %v", err)
 	}
 }
+
+func TestMLBackendDownloadActions(t *testing.T) {
+	actions := mlBackendDownloadActions(filepath.Join(t.TempDir(), "services", "ml-backend"))
+	if len(actions) != 1 {
+		t.Fatalf("expected 1 ml-backend action, got %d", len(actions))
+	}
+	if actions[0].ServiceID != "ml-backend" {
+		t.Fatalf("expected ServiceID ml-backend, got %q", actions[0].ServiceID)
+	}
+	if actions[0].ExpectedBinary == "" {
+		t.Fatal("expected binary launcher to be populated")
+	}
+}
+
+func TestCheckSetupIncludesMLBackendService(t *testing.T) {
+	root := t.TempDir()
+	registry := NewActionRegistry()
+
+	result := CheckSetup(resolveServiceConfig(root), registry)
+
+	found := false
+	for _, service := range result.Services {
+		if service.ID != "ml-backend" {
+			continue
+		}
+		found = true
+		if service.RequiredFor != "transcription" {
+			t.Fatalf("expected ml-backend required_for transcription, got %q", service.RequiredFor)
+		}
+		if service.State != "action_required" {
+			t.Fatalf("expected ml-backend action_required when missing, got %q", service.State)
+		}
+	}
+
+	if !found {
+		t.Fatal("expected ml-backend to be reported in setup status")
+	}
+}

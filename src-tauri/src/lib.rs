@@ -1,5 +1,7 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
+use tauri::Manager;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
@@ -23,7 +25,10 @@ async fn spawn_sidecar(
         .sidecar("subgen-sidecar")
         .map_err(|e| format!("Failed to create sidecar command: {}", e))?;
 
+    let workdir = resolve_sidecar_workdir(&app)?;
+
     let (mut rx, child) = sidecar
+        .current_dir(workdir)
         .spawn()
         .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
 
@@ -106,6 +111,32 @@ fn clear_child_state<T>(child: &Arc<Mutex<Option<T>>>) {
     }
 }
 
+fn resolve_sidecar_workdir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        return debug_sidecar_workdir();
+    }
+
+    app.path()
+        .resource_dir()
+        .map_err(|err| err.to_string())
+        .or_else(|err| {
+            std::env::current_dir().map_err(|cwd_err| {
+                format!(
+                    "Failed to resolve resource directory ({}) and current directory ({})",
+                    err, cwd_err
+                )
+            })
+        })
+}
+
+fn debug_sidecar_workdir() -> Result<PathBuf, String> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(|| "Failed to resolve workspace root".to_string())
+}
+
 fn linux_webview_env_overrides(
     is_linux: bool,
     is_wsl: bool,
@@ -172,7 +203,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{clear_child_state, linux_webview_env_overrides};
+    use super::{clear_child_state, debug_sidecar_workdir, linux_webview_env_overrides};
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -211,5 +243,17 @@ mod tests {
         let overrides = linux_webview_env_overrides(true, true, true, false);
 
         assert_eq!(overrides, vec![("WEBKIT_DISABLE_DMABUF_RENDERER", "1")]);
+    }
+
+    #[test]
+    fn debug_sidecar_workdir_uses_workspace_root() {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let expected = manifest_dir.parent().unwrap().to_path_buf();
+
+        assert_eq!(debug_sidecar_workdir().unwrap(), expected);
     }
 }

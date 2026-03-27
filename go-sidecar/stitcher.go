@@ -45,8 +45,11 @@ func StitchSegments(segments []Segment, cfg StitcherConfig) []ContextBlock {
 		gap := seg.Start - current.End
 		proposedSpan := seg.End - current.Start
 		proposedCount := len(current.Segments) + 1
+		speakerChanged := current.Segments[len(current.Segments)-1].SpeakerID != "" &&
+			seg.SpeakerID != "" &&
+			current.Segments[len(current.Segments)-1].SpeakerID != seg.SpeakerID
 
-		if gap <= cfg.GapThreshold && proposedSpan <= cfg.MaxBlockLength && proposedCount <= cfg.MaxSegmentsPerBlock {
+		if !speakerChanged && gap <= cfg.GapThreshold && proposedSpan <= cfg.MaxBlockLength && proposedCount <= cfg.MaxSegmentsPerBlock {
 			current.Segments = append(current.Segments, seg)
 			current.End = seg.End
 		} else {

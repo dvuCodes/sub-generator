@@ -13,6 +13,12 @@ import { Separator } from "@/components/ui/separator";
 import { useSidecar } from "./hooks/useSidecar";
 import { useVramPolling } from "./hooks/useVramPolling";
 import { buildLanguageOptions } from "./lib/languageOptions";
+import {
+  findTranslationBackendCapability,
+  resolveASRModelId,
+  resolvePreferredASRBackend,
+  resolvePreferredTranslationBackend,
+} from "./lib/backendOptions";
 import { reduceSystemInfo, type SystemInfoState } from "./lib/systemInfo";
 import {
   advanceProcessingState,
@@ -29,16 +35,23 @@ import {
   type InstallState,
 } from "./lib/installState";
 import type {
+  ASRBackend,
   AudioConfig,
+  CapabilitiesResponse,
   GenerateCommand,
   ModelSize,
   OutputFormat,
-  SidecarResponse,
   SetupStatusResponse,
+  SidecarResponse,
+  TranslationBackend,
 } from "./lib/types";
 import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { SubtitleIcon, SparklesIcon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import {
+  Cancel01Icon,
+  SparklesIcon,
+  SubtitleIcon,
+} from "@hugeicons/core-free-icons";
 
 type AppState = "idle" | "processing" | "complete" | "error" | "installing";
 
@@ -47,6 +60,10 @@ interface CompletionState {
   transcriptionLog?: string;
   segments: number;
   durationSecs: number;
+  backendSummary?: string;
+  selectedASRBackend?: string;
+  diarizationRan?: boolean;
+  speakerCount?: number;
 }
 
 function App() {
@@ -66,7 +83,12 @@ function App() {
     noise_gate: true,
     normalize: true,
   });
-
+  const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
+  const [asrBackend, setAsrBackend] = useState<ASRBackend>("faster_whisper");
+  const [asrModelId, setAsrModelId] = useState("");
+  const [translationBackend, setTranslationBackend] =
+    useState<TranslationBackend>("nllb");
+  const [diarizationEnabled, setDiarizationEnabled] = useState(false);
   const [appState, setAppState] = useState<AppState>("idle");
   const [processing, setProcessing] = useState<ProcessingState>(
     createInitialProcessingState
@@ -78,6 +100,65 @@ function App() {
   const [isStopping, setIsStopping] = useState(false);
   const [setupStatus, setSetupStatus] = useState<SetupStatusResponse | null>(null);
   const [installState, setInstallState] = useState<InstallState | null>(null);
+
+  const selectedASRBackend = resolvePreferredASRBackend(capabilities, asrBackend);
+  const selectedTranslationBackend = resolvePreferredTranslationBackend(
+    capabilities,
+    translationBackend
+  );
+  const selectedTranslationCapability = findTranslationBackendCapability(
+    capabilities,
+    selectedTranslationBackend
+  );
+  const selectedASRModelId = resolveASRModelId(
+    capabilities,
+    selectedASRBackend,
+    model,
+    asrModelId
+  );
+  const effectiveTranslationBackend: TranslationBackend =
+    targetLang && selectedTranslationBackend !== "none"
+      ? selectedTranslationBackend
+      : "none";
+  const languageOptions = buildLanguageOptions(
+    capabilities,
+    selectedASRBackend,
+    selectedTranslationBackend
+  );
+  const asrOptions =
+    capabilities?.backends.asr ?? [
+      {
+        id: "faster_whisper",
+        display_name: "Faster Whisper",
+        installed: systemInfo?.mlBackend ?? false,
+        default_model_id: capabilities?.defaults.asr_model_id ?? "",
+        source_languages: [],
+      },
+      {
+        id: "whisper_cpp",
+        display_name: "whisper.cpp",
+        installed: true,
+        default_model_id: "turbo",
+        source_languages: [],
+      },
+    ];
+  const translationOptions =
+    capabilities?.backends.translation ?? [
+      {
+        id: "nllb",
+        display_name: "NLLB",
+        installed: systemInfo?.mlBackend ?? false,
+        default_model_id: "",
+        target_languages: [],
+      },
+      {
+        id: "gemma_context",
+        display_name: "Gemma Context",
+        installed: systemInfo?.translationEngine ?? false,
+        default_model_id: "",
+        target_languages: [],
+      },
+    ];
 
   const hasNvidiaGpu =
     systemInfo !== null &&
@@ -113,13 +194,23 @@ function App() {
     onResponse((response: SidecarResponse) => {
       switch (response.type) {
         case "setup_status":
-          setSetupStatus(response as SetupStatusResponse);
+          setSetupStatus(response);
           if (appStateRef.current === "installing" && installStateRef.current) {
-            if (isInstallComplete(installStateRef.current, response as SetupStatusResponse)) {
+            if (isInstallComplete(installStateRef.current, response)) {
               setAppState("idle");
               setInstallState(null);
+              sendCommandRef.current({ command: "capabilities" }).catch((err) => {
+                console.error("Failed to refresh capabilities:", err);
+              });
+              sendCommandRef.current({ command: "system_info" }).catch((err) => {
+                console.error("Failed to refresh system info:", err);
+              });
             }
           }
+          break;
+        case "capabilities":
+          setCapabilities(response);
+          setTranslationWarning("");
           break;
         case "progress":
           if (appStateRef.current === "installing") {
@@ -145,6 +236,10 @@ function App() {
             transcriptionLog: response.transcription_log,
             segments: response.segments,
             durationSecs: response.duration_secs,
+            backendSummary: response.backend_summary,
+            selectedASRBackend: response.selected_asr_backend,
+            diarizationRan: response.diarization_ran,
+            speakerCount: response.speaker_count,
           });
           setAppState("complete");
           sendCommandRef.current({ command: "stop_services" }).catch((err) => {
@@ -156,7 +251,7 @@ function App() {
           break;
         case "system_info":
           setSystemInfo((prev) => reduceSystemInfo(prev, response));
-          if (response.translation_engine) {
+          if (response.translation_engine || response.ml_backend) {
             setTranslationWarning("");
           }
           break;
@@ -193,15 +288,60 @@ function App() {
     sendCommand({ command: "system_info" }).catch((err) => {
       console.error("Failed to request system info:", err);
     });
-    sendCommand({ command: "list_languages" }).catch((err) => {
-      console.error("Failed to request language list:", err);
+    sendCommand({ command: "capabilities" }).catch((err) => {
+      console.error("Failed to request capabilities:", err);
+      setTranslationWarning(`Failed to load backend capabilities: ${err}`);
     });
     sendCommand({ command: "check_setup" }).catch((err) => {
       console.error("Failed to check setup:", err);
     });
   }, [connected, sendCommand]);
 
-  const languageOptions = buildLanguageOptions();
+  useEffect(() => {
+    if (!capabilities) {
+      return;
+    }
+
+    setAsrBackend((current) => {
+      return resolvePreferredASRBackend(capabilities, current);
+    });
+    setTranslationBackend((current) => {
+      return resolvePreferredTranslationBackend(capabilities, current);
+    });
+    setDiarizationEnabled((current) =>
+      current || capabilities.defaults.diarization_enabled
+    );
+  }, [capabilities]);
+
+  useEffect(() => {
+    setAsrModelId((current) =>
+      resolveASRModelId(capabilities, selectedASRBackend, model, current)
+    );
+  }, [capabilities, model, selectedASRBackend]);
+
+  useEffect(() => {
+    if (
+      selectedTranslationBackend === "none" &&
+      targetLang !== ""
+    ) {
+      setTargetLang("");
+      return;
+    }
+
+    if (
+      sourceLang !== "auto" &&
+      !languageOptions.source.some((lang) => lang.code === sourceLang)
+    ) {
+      setSourceLang("auto");
+    }
+
+    if (
+      targetLang &&
+      !languageOptions.target.some((lang) => lang.code === targetLang)
+    ) {
+      setTargetLang("");
+    }
+  }, [languageOptions, selectedTranslationBackend, sourceLang, targetLang]);
 
   const handleGenerate = useCallback(async () => {
     if (!videoPath || !connected) return;
@@ -220,11 +360,15 @@ function App() {
       const command: GenerateCommand = {
         command: "generate",
         input_video: videoPath,
-        source_lang: sourceLang === "auto" ? null : sourceLang,
-        target_lang: targetLang || null,
+        source_lang: sourceLang,
+        target_lang: effectiveTranslationBackend === "none" ? null : targetLang,
         output_format: format,
         output_path: null,
+        asr_backend: selectedASRBackend,
+        asr_model_id: selectedASRModelId,
         model_size: model,
+        translation_backend: effectiveTranslationBackend,
+        diarization_enabled: diarizationEnabled,
         beam_size: beamSize,
         vad_filter: vadFilter,
         audio_config: audioConfig,
@@ -235,16 +379,20 @@ function App() {
       setAppState("error");
     }
   }, [
-    videoPath,
+    audioConfig,
+    beamSize,
     connected,
-    sourceLang,
-    targetLang,
+    diarizationEnabled,
+    effectiveTranslationBackend,
     format,
     model,
-    beamSize,
-    vadFilter,
-    audioConfig,
+    selectedASRBackend,
+    selectedASRModelId,
     sendCommand,
+    sourceLang,
+    targetLang,
+    vadFilter,
+    videoPath,
   ]);
 
   const handleReset = useCallback(() => {
@@ -299,25 +447,60 @@ function App() {
     [sendCommand]
   );
 
+  const handleASRBackendChange = useCallback(
+    (backend: ASRBackend) => {
+      setAsrBackend(backend);
+      setAsrModelId(resolveASRModelId(capabilities, backend, model, ""));
+    },
+    [capabilities, model]
+  );
+
+  const handleTranslationBackendChange = useCallback((backend: TranslationBackend) => {
+    setTranslationBackend(backend);
+    if (backend === "none") {
+      setTargetLang("");
+    }
+  }, []);
+
+  const handleWhisperModelChange = useCallback(
+    (nextModel: ModelSize) => {
+      setModel(nextModel);
+      if (selectedASRBackend === "whisper_cpp") {
+        setAsrModelId(nextModel);
+      }
+    },
+    [selectedASRBackend]
+  );
+
   const isProcessing = appState === "processing";
-  const translationStatus = systemInfo?.translationEngine
-    ? `GemmaTranslate ready. ${languageOptions.target.length} translation targets available.`
-    : translationWarning ||
-      "Translation engine will start automatically when needed.";
+  const translationStatus =
+    selectedTranslationBackend === "none"
+      ? "Source-only subtitles. Translation is disabled."
+      : !targetLang
+        ? `Choose a target language to run ${selectedTranslationCapability?.display_name ?? "translation"}.`
+      : selectedTranslationCapability?.installed
+        ? `${selectedTranslationCapability.display_name} ready. ${languageOptions.target.length} translation targets available.`
+        : translationWarning ||
+          `${selectedTranslationCapability?.display_name ?? "Translation backend"} requires setup before translation can run.`;
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      {/* Header */}
       <header className="border-b border-border px-6 py-3">
         <div className="mx-auto flex max-w-2xl items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex size-8 items-center justify-center bg-primary">
-              <HugeiconsIcon icon={SubtitleIcon} className="size-4 text-primary-foreground" strokeWidth={2} />
+              <HugeiconsIcon
+                icon={SubtitleIcon}
+                className="size-4 text-primary-foreground"
+                strokeWidth={2}
+              />
             </div>
             <div>
               <h1 className="text-sm font-medium tracking-wide">SUBGEN</h1>
               <p className="text-[10px] text-muted-foreground">
-                {systemInfo?.gpu && systemInfo.gpu !== "unknown" && systemInfo.gpu !== "none"
+                {systemInfo?.gpu &&
+                systemInfo.gpu !== "unknown" &&
+                systemInfo.gpu !== "none"
                   ? systemInfo.gpu
                   : "Local subtitle generator"}
               </p>
@@ -332,12 +515,24 @@ function App() {
           </div>
           <div className="flex items-center gap-2">
             {systemInfo && (
-              <div className="hidden sm:flex items-center gap-1.5 mr-2">
-                <Badge variant={systemInfo.whisperServer ? "default" : "outline"} className="text-[10px]">
+              <div className="mr-2 hidden items-center gap-1.5 sm:flex">
+                <Badge
+                  variant={systemInfo.whisperServer ? "default" : "outline"}
+                  className="text-[10px]"
+                >
                   Whisper
                 </Badge>
-                <Badge variant={systemInfo.translationEngine ? "default" : "outline"} className="text-[10px]">
-                  Translate
+                <Badge
+                  variant={systemInfo.mlBackend ? "default" : "outline"}
+                  className="text-[10px]"
+                >
+                  ML
+                </Badge>
+                <Badge
+                  variant={systemInfo.translationEngine ? "default" : "outline"}
+                  className="text-[10px]"
+                >
+                  Gemma
                 </Badge>
               </div>
             )}
@@ -352,24 +547,23 @@ function App() {
               )}
             />
             <span className="text-[10px] text-muted-foreground">
-              {connected
-                ? "Ready"
-                : connecting
-                  ? "Connecting"
-                  : "Offline"}
+              {connected ? "Ready" : connecting ? "Connecting" : "Offline"}
             </span>
           </div>
         </div>
       </header>
 
-      {/* Main */}
-      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-6 space-y-5">
+      <main className="mx-auto w-full max-w-2xl flex-1 space-y-5 px-6 py-6">
         {appState === "complete" && completion ? (
           <OutputResult
             outputPath={completion.outputPath}
             transcriptionLog={completion.transcriptionLog}
             segments={completion.segments}
             durationSecs={completion.durationSecs}
+            backendSummary={completion.backendSummary}
+            selectedASRBackend={completion.selectedASRBackend}
+            diarizationRan={completion.diarizationRan}
+            speakerCount={completion.speakerCount}
             onReset={handleReset}
           />
         ) : isProcessing ? (
@@ -403,13 +597,11 @@ function App() {
               <SetupBanner
                 setupStatus={setupStatus}
                 onInstall={handleInstall}
+                disabled={appState === "installing"}
               />
             )}
 
-            <VideoDropzone
-              selectedFile={videoPath}
-              onFileSelect={setVideoPath}
-            />
+            <VideoDropzone selectedFile={videoPath} onFileSelect={setVideoPath} />
 
             <Separator />
 
@@ -421,17 +613,27 @@ function App() {
               sourceLanguages={languageOptions.source}
               targetLanguages={languageOptions.target}
               translationStatus={translationStatus}
+              disabled={isProcessing}
+              targetDisabled={selectedTranslationBackend === "none"}
             />
 
             <ModelSelector
-              model={model}
-              onChange={setModel}
+              asrBackend={selectedASRBackend}
+              asrOptions={asrOptions}
+              asrModelId={selectedASRModelId}
+              translationBackend={selectedTranslationBackend}
+              translationOptions={translationOptions}
+              whisperModel={model}
+              diarizationEnabled={diarizationEnabled}
+              onAsrBackendChange={handleASRBackendChange}
+              onAsrModelChange={setAsrModelId}
+              onTranslationBackendChange={handleTranslationBackendChange}
+              onWhisperModelChange={handleWhisperModelChange}
+              onDiarizationChange={setDiarizationEnabled}
+              disabled={isProcessing}
             />
 
-            <FormatSelector
-              format={format}
-              onChange={setFormat}
-            />
+            <FormatSelector format={format} onChange={setFormat} />
 
             <SettingsPanel
               beamSize={beamSize}
@@ -445,10 +647,15 @@ function App() {
 
             {appState === "error" && errorMsg && (
               <div className="flex items-start gap-3 border border-destructive/30 bg-destructive/5 p-4">
-                <HugeiconsIcon icon={Cancel01Icon} className="mt-0.5 size-4 shrink-0 text-destructive" strokeWidth={2} />
+                <HugeiconsIcon
+                  icon={Cancel01Icon}
+                  className="mt-0.5 size-4 shrink-0 text-destructive"
+                  strokeWidth={2}
+                />
                 <div className="flex-1">
                   <p className="text-xs text-destructive">{errorMsg}</p>
                   <button
+                    type="button"
                     onClick={() => setAppState("idle")}
                     className="mt-2 text-[10px] text-destructive/70 underline underline-offset-2 hover:text-destructive"
                   >
@@ -462,12 +669,21 @@ function App() {
               size="lg"
               className="w-full py-6 text-xs font-medium uppercase tracking-widest"
               onClick={handleGenerate}
-              disabled={!videoPath || !connected || shouldDisableGenerate(setupStatus, targetLang)}
+              disabled={
+                !videoPath ||
+                !connected ||
+                shouldDisableGenerate(
+                  setupStatus,
+                  {
+                    asrBackend: selectedASRBackend,
+                    translationBackend: effectiveTranslationBackend,
+                    diarizationEnabled,
+                  }
+                )
+              }
             >
               <HugeiconsIcon icon={SparklesIcon} className="size-4" strokeWidth={1.5} />
-              {!connected
-                ? "Waiting for backend..."
-                : "Generate Subtitles"}
+              {!connected ? "Waiting for backend..." : "Generate Subtitles"}
             </Button>
           </>
         )}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { shouldDisableGenerate, formatSetupIssue } from "./setupHelpers";
 import type { ServiceStatus, SetupStatusResponse } from "./types";
 
@@ -19,26 +19,69 @@ function makeStatus(overrides: Partial<ServiceStatus>[]): SetupStatusResponse {
 describe("shouldDisableGenerate", () => {
   it("returns false when all services ready", () => {
     const status = makeStatus([{ state: "ready", required_for: "transcription" }]);
-    expect(shouldDisableGenerate(status, "")).toBe(false);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "faster_whisper",
+        translationBackend: "none",
+      })
+    ).toBe(false);
   });
 
-  it("returns true when transcription service needs action", () => {
-    const status = makeStatus([{ state: "action_required", required_for: "transcription" }]);
-    expect(shouldDisableGenerate(status, "")).toBe(true);
+  it("blocks faster-whisper when ml-backend needs action", () => {
+    const status = makeStatus([
+      { id: "ml-backend", state: "action_required", required_for: "transcription" },
+    ]);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "faster_whisper",
+        translationBackend: "none",
+      })
+    ).toBe(true);
   });
 
-  it("returns true when translation service needs action and targetLang set", () => {
-    const status = makeStatus([{ state: "action_required", required_for: "translation" }]);
-    expect(shouldDisableGenerate(status, "en")).toBe(true);
+  it("allows whisper.cpp when only ml-backend needs action", () => {
+    const status = makeStatus([
+      { id: "ml-backend", state: "action_required", required_for: "transcription" },
+    ]);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "whisper_cpp",
+        translationBackend: "none",
+      })
+    ).toBe(false);
   });
 
-  it("returns false when translation service needs action but no targetLang", () => {
-    const status = makeStatus([{ state: "action_required", required_for: "translation" }]);
-    expect(shouldDisableGenerate(status, "")).toBe(false);
+  it("blocks gemma translation when llama needs action", () => {
+    const status = makeStatus([
+      { id: "llama", state: "action_required", required_for: "translation" },
+    ]);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "whisper_cpp",
+        translationBackend: "gemma_context",
+      })
+    ).toBe(true);
+  });
+
+  it("allows generation when translation is off even if translation setup is missing", () => {
+    const status = makeStatus([
+      { id: "llama", state: "action_required", required_for: "translation" },
+    ]);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "whisper_cpp",
+        translationBackend: "none",
+      })
+    ).toBe(false);
   });
 
   it("returns false when setup status is null", () => {
-    expect(shouldDisableGenerate(null, "en")).toBe(false);
+    expect(
+      shouldDisableGenerate(null, {
+        asrBackend: "faster_whisper",
+        translationBackend: "none",
+      })
+    ).toBe(false);
   });
 });
 

@@ -23,6 +23,7 @@ const DEFAULT_STAGE_ORDER = [
   "starting_services",
   "preprocessing",
   "transcribing",
+  "diarizing",
   "translating",
   "writing",
 ];
@@ -33,6 +34,7 @@ const DEFAULT_STAGE_LABELS: Record<string, string> = {
   starting_services: "Services",
   preprocessing: "Enhance",
   transcribing: "Transcribe",
+  diarizing: "Speakers",
   translating: "Translate",
   writing: "Write",
 };
@@ -52,13 +54,14 @@ export function ProcessingView({
   percent,
   message,
   elapsedSecs,
-  etaSecs: _etaSecs,
+  etaSecs,
   onStop,
   stopDisabled = false,
   stopLabel = "Stop",
   stageOrder,
   stageLabels,
 }: ProcessingViewProps) {
+  void etaSecs;
   const stages = stageOrder ?? DEFAULT_STAGE_ORDER;
   const labels = stageLabels ?? DEFAULT_STAGE_LABELS;
   const currentIndex = stages.indexOf(stage);

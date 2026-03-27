@@ -14,6 +14,10 @@ interface OutputResultProps {
   transcriptionLog?: string;
   segments: number;
   durationSecs: number;
+  backendSummary?: string;
+  selectedASRBackend?: string;
+  diarizationRan?: boolean;
+  speakerCount?: number;
   onReset: () => void;
 }
 
@@ -22,6 +26,10 @@ export function OutputResult({
   transcriptionLog,
   segments,
   durationSecs,
+  backendSummary,
+  selectedASRBackend,
+  diarizationRan,
+  speakerCount,
   onReset,
 }: OutputResultProps) {
   const fileName = outputPath.split(/[/\\]/).pop() ?? outputPath;
@@ -79,6 +87,32 @@ export function OutputResult({
               {formatDuration(durationSecs)}
             </span>
           </div>
+          {backendSummary && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Backends</span>
+              <span className="max-w-[220px] truncate font-mono text-foreground">
+                {backendSummary}
+              </span>
+            </div>
+          )}
+          {selectedASRBackend && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">ASR Backend</span>
+              <span className="font-mono text-foreground">{selectedASRBackend}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Speaker Labels</span>
+            <span className="font-mono text-foreground">
+              {diarizationRan ? "On" : "Off"}
+            </span>
+          </div>
+          {typeof speakerCount === "number" && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Speakers</span>
+              <span className="font-mono text-foreground">{speakerCount}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Location</span>
             <span className="max-w-[220px] truncate font-mono text-foreground">

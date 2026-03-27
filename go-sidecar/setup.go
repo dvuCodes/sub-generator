@@ -263,6 +263,23 @@ func llamaDownloadActions(hasGPU bool, installDir string) []Action {
 	return actions
 }
 
+func mlBackendDownloadActions(installDir string) []Action {
+	return []Action{
+		{
+			ID:              "ml-backend/install_bundle",
+			Kind:            "manual",
+			Label:           "Install ML backend bundle",
+			Description:     "Ensure services/ml-backend is present and Python can launch the bundled backend.",
+			Guidance:        "Packaged builds bundle services/ml-backend automatically. In dev, keep services/ml-backend in the repo and ensure python is available on PATH or under services/ml-backend/runtime/.",
+			InstallDir:      installDir,
+			StripComponents: 0,
+			ExpectedBinary:  mlBackendLauncherName(),
+			Preferred:       true,
+			ServiceID:       "ml-backend",
+		},
+	}
+}
+
 // --- Service checker helper ---
 
 func checkService(
@@ -326,6 +343,9 @@ func CheckSetup(config ServiceConfig, registry *ActionRegistry) SetupStatusRespo
 	llamaBinary := resolveLlamaServerBinary(config.SearchRoots)
 	llamaInstallDir := preferredLlamaInstallDir(config.SearchRoots)
 	llamaActions := llamaDownloadActions(hasGPU, llamaInstallDir)
+	mlBackendInstallDir := preferredMLBackendInstallDir(config.SearchRoots)
+	mlBackendActions := mlBackendDownloadActions(mlBackendInstallDir)
+	mlBackendStatus := checkMLBackend(config, registry, mlBackendActions)
 
 	whisperStatus := checkService("whisper", "whisper-server", "transcription", whisperBinary, whisperActions, registry)
 	llamaStatus := checkService("llama", "llama-server", "translation", llamaBinary, llamaActions, registry)
@@ -333,6 +353,41 @@ func CheckSetup(config ServiceConfig, registry *ActionRegistry) SetupStatusRespo
 
 	return SetupStatusResponse{
 		Type:     "setup_status",
-		Services: []ServiceStatus{whisperStatus, llamaStatus, ffmpegStatus},
+		Services: []ServiceStatus{whisperStatus, llamaStatus, mlBackendStatus, ffmpegStatus},
 	}
+}
+
+func checkMLBackend(config ServiceConfig, registry *ActionRegistry, actions []Action) ServiceStatus {
+	launcherPath := resolveMLBackendLauncher(config.SearchRoots)
+	scriptPath := resolveMLBackendScriptPath(config.SearchRoots)
+	pythonPath := resolveMLBackendPython(config.SearchRoots)
+	if fileExists(launcherPath) || (scriptPath != "" && validateCommandAvailability(pythonPath, "python") == nil) {
+		return ServiceStatus{
+			ID:          "ml-backend",
+			DisplayName: "ml-backend",
+			RequiredFor: "transcription",
+			State:       "ready",
+			Issues:      []ServiceIssue{},
+			Actions:     []ServiceAction{},
+		}
+	}
+
+	status := ServiceStatus{
+		ID:          "ml-backend",
+		DisplayName: "ml-backend",
+		RequiredFor: "transcription",
+		State:       "action_required",
+		Issues: []ServiceIssue{
+			{Code: "binary_not_found"},
+		},
+	}
+
+	if registry != nil {
+		for _, action := range actions {
+			registry.Register(action)
+			status.Actions = append(status.Actions, action.toServiceAction())
+		}
+	}
+
+	return status
 }
