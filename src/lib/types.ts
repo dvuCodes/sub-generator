@@ -1,4 +1,3 @@
-// IPC commands (frontend -> Go sidecar)
 export type ModelSize =
   | "tiny"
   | "base"
@@ -8,6 +7,8 @@ export type ModelSize =
   | "turbo";
 
 export type OutputFormat = "srt" | "ass" | "vtt";
+export type ASRBackend = "faster_whisper" | "whisper_cpp";
+export type TranslationBackend = "nllb" | "gemma_context" | "none";
 
 export interface AudioConfig {
   enabled: boolean;
@@ -23,7 +24,11 @@ export interface GenerateCommand {
   target_lang: string | null;
   output_format: OutputFormat;
   output_path: string | null;
+  asr_backend: ASRBackend;
+  asr_model_id: string;
   model_size: ModelSize;
+  translation_backend: TranslationBackend;
+  diarization_enabled: boolean;
   beam_size: number;
   vad_filter: boolean;
   audio_config: AudioConfig;
@@ -31,6 +36,10 @@ export interface GenerateCommand {
 
 export interface ListLanguagesCommand {
   command: "list_languages";
+}
+
+export interface CapabilitiesCommand {
+  command: "capabilities";
 }
 
 export interface SystemInfoCommand {
@@ -49,6 +58,26 @@ export interface VramInfoCommand {
   command: "vram_info";
 }
 
+export interface CheckSetupCommand {
+  command: "check_setup";
+}
+
+export interface InstallDependencyCommand {
+  command: "install_dependency";
+  action_id: string;
+}
+
+export type SidecarCommand =
+  | GenerateCommand
+  | ListLanguagesCommand
+  | CapabilitiesCommand
+  | SystemInfoCommand
+  | StartServicesCommand
+  | StopServicesCommand
+  | VramInfoCommand
+  | CheckSetupCommand
+  | InstallDependencyCommand;
+
 export type RequiredFor = "transcription" | "translation";
 
 export interface ServiceIssue {
@@ -60,7 +89,7 @@ export interface ServiceAction {
   id: string;
   label: string;
   description: string;
-  kind: "archive" | "manual";
+  kind: "archive" | "manual" | "command";
   preferred?: boolean;
   guidance?: string;
 }
@@ -79,26 +108,6 @@ export interface SetupStatusResponse {
   services: ServiceStatus[];
 }
 
-export interface CheckSetupCommand {
-  command: "check_setup";
-}
-
-export interface InstallDependencyCommand {
-  command: "install_dependency";
-  action_id: string;
-}
-
-export type SidecarCommand =
-  | GenerateCommand
-  | ListLanguagesCommand
-  | SystemInfoCommand
-  | StartServicesCommand
-  | StopServicesCommand
-  | VramInfoCommand
-  | CheckSetupCommand
-  | InstallDependencyCommand;
-
-// IPC responses (Go sidecar -> frontend)
 export interface ProgressResponse {
   type: "progress";
   stage: string;
@@ -120,6 +129,10 @@ export interface CompleteResponse {
   transcription_log?: string;
   segments: number;
   duration_secs: number;
+  backend_summary?: string;
+  selected_asr_backend?: string;
+  diarization_ran?: boolean;
+  speaker_count?: number;
 }
 
 export interface ErrorResponse {
@@ -138,10 +151,48 @@ export interface LanguagesResponse {
   installed: LanguagePair[];
 }
 
+export interface LanguageOption {
+  code: string;
+  name: string;
+}
+
+export interface BackendDefaults {
+  asr_backend: ASRBackend;
+  asr_model_id: string;
+  translation_backend: TranslationBackend;
+  diarization_enabled: boolean;
+}
+
+export interface ASRBackendCapability {
+  id: ASRBackend;
+  display_name: string;
+  installed: boolean;
+  default_model_id?: string;
+  source_languages: LanguageOption[];
+}
+
+export interface TranslationBackendCapability {
+  id: Exclude<TranslationBackend, "none">;
+  display_name: string;
+  installed: boolean;
+  default_model_id?: string;
+  target_languages: LanguageOption[];
+}
+
+export interface CapabilitiesResponse {
+  type: "capabilities";
+  defaults: BackendDefaults;
+  backends: {
+    asr: ASRBackendCapability[];
+    translation: TranslationBackendCapability[];
+  };
+}
+
 export interface SystemInfoResponse {
   type: "system_info";
   whisper_server: boolean;
   translation_engine: boolean;
+  ml_backend: boolean;
   gpu: string;
 }
 
@@ -162,6 +213,7 @@ export type SidecarResponse =
   | CompleteResponse
   | ErrorResponse
   | LanguagesResponse
+  | CapabilitiesResponse
   | SystemInfoResponse
   | VramInfoResponse
   | SetupStatusResponse;

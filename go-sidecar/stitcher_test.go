@@ -121,8 +121,8 @@ func TestStitchSegmentsPreservesBlankSegments(t *testing.T) {
 	segs := []Segment{
 		{Start: 0.0, End: 1.0, Text: "hello"},
 		{Start: 1.5, End: 2.0, Text: ""},       // blank
-		{Start: 2.5, End: 3.0, Text: "..."},     // punctuation
-		{Start: 3.5, End: 4.0, Text: "  \t  "},  // whitespace
+		{Start: 2.5, End: 3.0, Text: "..."},    // punctuation
+		{Start: 3.5, End: 4.0, Text: "  \t  "}, // whitespace
 		{Start: 4.5, End: 5.0, Text: "goodbye"},
 	}
 	blocks := StitchSegments(segs, DefaultStitcherConfig())
@@ -158,6 +158,26 @@ func TestStitchSegmentsCustomConfig(t *testing.T) {
 	}
 	if len(blocks[1].Segments) != 1 {
 		t.Errorf("block 1: expected 1 segment, got %d", len(blocks[1].Segments))
+	}
+}
+
+func TestStitchSegmentsSplitsOnSpeakerChange(t *testing.T) {
+	segs := []Segment{
+		{Start: 0.0, End: 1.0, Text: "a", SpeakerID: "spk_1"},
+		{Start: 1.3, End: 2.0, Text: "b", SpeakerID: "spk_1"},
+		{Start: 2.2, End: 3.0, Text: "c", SpeakerID: "spk_2"},
+	}
+
+	blocks := StitchSegments(segs, DefaultStitcherConfig())
+
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks on speaker change, got %d", len(blocks))
+	}
+	if len(blocks[0].Segments) != 2 || len(blocks[1].Segments) != 1 {
+		t.Fatalf("unexpected block sizes: %d and %d", len(blocks[0].Segments), len(blocks[1].Segments))
+	}
+	if blocks[1].Segments[0].SpeakerID != "spk_2" {
+		t.Fatalf("expected second block to start with spk_2, got %#v", blocks[1].Segments[0])
 	}
 }
 

@@ -89,13 +89,18 @@ func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) 
 			Installed: langs,
 		})
 
+	case "capabilities":
+		sendJSON(buildCapabilitiesResponse(svcManager))
+
 	case "system_info":
 		whisperOK := svcManager.IsWhisperRunning()
 		llamaOK := svcManager.IsLlamaServerRunning()
+		mlBackendOK := svcManager.IsMLBackendRunning()
 		sendJSON(SystemInfoResponse{
 			Type:              "system_info",
 			WhisperServer:     whisperOK,
 			TranslationEngine: llamaOK,
+			MLBackend:         mlBackendOK,
 			GPU:               detectGPU(),
 		})
 
@@ -145,7 +150,7 @@ func runInstallDependency(actionID string, svcManager *ServiceManager) {
 		return
 	}
 
-	if err := DownloadAndExtractArchive(action, svcManager, func(downloaded, total int64) {
+	if err := runInstallAction(action, svcManager, func(downloaded, total int64) {
 		if total > 0 {
 			pct := float64(downloaded) / float64(total) * 100
 			sendProgress("downloading_dependency", pct, fmt.Sprintf("Downloading %s / %s", formatBytes(downloaded), formatBytes(total)))
@@ -165,7 +170,150 @@ func runInstallDependency(actionID string, svcManager *ServiceManager) {
 }
 
 func listAvailableLanguages() ([]LanguagePair, error) {
-	return StaticLanguagePairs(), nil
+	svcManager := NewServiceManager(DefaultServiceConfig())
+	defer svcManager.StopMLBackend()
+
+	capabilities := buildCapabilitiesResponse(svcManager)
+	targets := capabilities.Backends.Translation
+	if len(targets) == 0 {
+		return StaticLanguagePairs(), nil
+	}
+
+	var targetLanguages []LanguageOption
+	for _, backend := range targets {
+		if backend.ID == capabilities.Defaults.TranslationBackend && len(backend.TargetLanguages) > 0 {
+			targetLanguages = backend.TargetLanguages
+			break
+		}
+	}
+	if len(targetLanguages) == 0 {
+		return StaticLanguagePairs(), nil
+	}
+
+	sourceLanguages := append([]LanguageOption{{Code: "auto", Name: "Auto-detect"}}, commonLanguageOptions()...)
+	pairs := make([]LanguagePair, 0, len(sourceLanguages)*len(targetLanguages))
+	for _, source := range sourceLanguages {
+		if source.Code == "auto" {
+			continue
+		}
+		for _, target := range targetLanguages {
+			if source.Code == target.Code {
+				continue
+			}
+			pairs = append(pairs, LanguagePair{Source: source.Code, Target: target.Code})
+		}
+	}
+	return pairs, nil
+}
+
+func buildCapabilitiesResponse(svcManager *ServiceManager) CapabilitiesResponse {
+	capabilities := defaultCapabilities()
+
+	if svcManager == nil {
+		return capabilities
+	}
+
+	for i := range capabilities.Backends.ASR {
+		if capabilities.Backends.ASR[i].ID == "whisper_cpp" {
+			capabilities.Backends.ASR[i].Installed = whisperCPPBackendAvailable(svcManager.config.SearchRoots)
+		}
+	}
+	for i := range capabilities.Backends.Translation {
+		if capabilities.Backends.Translation[i].ID == gemmaTranslationBackend {
+			capabilities.Backends.Translation[i].Installed = gemmaTranslationAvailable(svcManager.config.SearchRoots)
+		}
+	}
+
+	if !fileExists(resolveMLBackendLauncher(svcManager.config.SearchRoots)) && resolveMLBackendScriptPath(svcManager.config.SearchRoots) == "" {
+		return capabilities
+	}
+	if err := svcManager.StartMLBackend(); err != nil {
+		return capabilities
+	}
+
+	client := NewMLBackendClient(svcManager.MLBackendURL())
+	remote, err := client.Capabilities()
+	if err != nil {
+		return capabilities
+	}
+
+	mergeCapabilities(&capabilities, remote)
+	return capabilities
+}
+
+func whisperCPPBackendAvailable(searchRoots []string) bool {
+	whisperBinary, _ := resolveWhisperAssets(searchRoots, "base")
+	return validateCommandAvailability(whisperBinary, "whisper-server") == nil
+}
+
+func gemmaTranslationAvailable(searchRoots []string) bool {
+	llamaBinary := resolveLlamaServerBinary(searchRoots)
+	return validateCommandAvailability(llamaBinary, "llama-server") == nil
+}
+
+func mergeCapabilities(base *CapabilitiesResponse, remote *CapabilitiesResponse) {
+	if base == nil || remote == nil {
+		return
+	}
+	base.Defaults = remote.Defaults
+
+	for _, remoteASR := range remote.Backends.ASR {
+		replaced := false
+		for i := range base.Backends.ASR {
+			if base.Backends.ASR[i].ID == remoteASR.ID {
+				base.Backends.ASR[i] = mergeASRCapability(base.Backends.ASR[i], remoteASR)
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			base.Backends.ASR = append(base.Backends.ASR, remoteASR)
+		}
+	}
+
+	for _, remoteTranslation := range remote.Backends.Translation {
+		replaced := false
+		for i := range base.Backends.Translation {
+			if base.Backends.Translation[i].ID == remoteTranslation.ID {
+				base.Backends.Translation[i] = mergeTranslationCapability(base.Backends.Translation[i], remoteTranslation)
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			base.Backends.Translation = append(base.Backends.Translation, remoteTranslation)
+		}
+	}
+}
+
+func mergeASRCapability(base ASRBackendCapability, remote ASRBackendCapability) ASRBackendCapability {
+	merged := base
+	if remote.DisplayName != "" {
+		merged.DisplayName = remote.DisplayName
+	}
+	merged.Installed = base.Installed || remote.Installed
+	if remote.DefaultModelID != "" {
+		merged.DefaultModelID = remote.DefaultModelID
+	}
+	if len(remote.SourceLanguages) > 0 {
+		merged.SourceLanguages = remote.SourceLanguages
+	}
+	return merged
+}
+
+func mergeTranslationCapability(base TranslationBackendCapability, remote TranslationBackendCapability) TranslationBackendCapability {
+	merged := base
+	if remote.DisplayName != "" {
+		merged.DisplayName = remote.DisplayName
+	}
+	merged.Installed = base.Installed || remote.Installed
+	if remote.DefaultModelID != "" {
+		merged.DefaultModelID = remote.DefaultModelID
+	}
+	if len(remote.TargetLanguages) > 0 {
+		merged.TargetLanguages = remote.TargetLanguages
+	}
+	return merged
 }
 
 func sendJSON(v any) {

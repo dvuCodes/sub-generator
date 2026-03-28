@@ -1,19 +1,45 @@
-import type { ServiceIssue, SetupStatusResponse } from "./types";
+import type {
+  ASRBackend,
+  ServiceAction,
+  ServiceIssue,
+  SetupStatusResponse,
+  TranslationBackend,
+} from "./types";
+
+export interface GenerateSelection {
+  asrBackend: ASRBackend;
+  translationBackend: TranslationBackend;
+  diarizationEnabled?: boolean;
+}
 
 export function shouldDisableGenerate(
   setupStatus: SetupStatusResponse | null,
-  targetLang: string
+  selection: GenerateSelection
 ): boolean {
   if (!setupStatus) return false;
 
-  for (const service of setupStatus.services) {
-    if (service.state !== "action_required") continue;
+  const services = new Map(
+    setupStatus.services.map((service) => [service.id, service])
+  );
+  const requires = ["ffmpeg"];
 
-    if (service.required_for === "transcription") return true;
-    if (service.required_for === "translation" && targetLang) return true;
+  if (selection.asrBackend === "whisper_cpp") {
+    requires.push("whisper");
+  } else {
+    requires.push("ml-backend");
   }
 
-  return false;
+  if (selection.translationBackend === "gemma_context") {
+    requires.push("llama");
+  } else if (selection.translationBackend === "nllb") {
+    requires.push("ml-backend");
+  }
+
+  if (selection.diarizationEnabled) {
+    requires.push("ml-backend");
+  }
+
+  return requires.some((id) => services.get(id)?.state === "action_required");
 }
 
 export function formatSetupIssue(issue: ServiceIssue): string {
@@ -31,4 +57,37 @@ export function formatSetupIssue(issue: ServiceIssue): string {
     default:
       return `Setup issue: ${issue.code}`;
   }
+}
+
+export function isServiceReady(
+  setupStatus: SetupStatusResponse | null,
+  serviceId: string
+): boolean {
+  if (!setupStatus) return false;
+
+  return setupStatus.services.some(
+    (service) => service.id === serviceId && service.state === "ready"
+  );
+}
+
+export function findPromptableInstallAction(
+  setupStatus: SetupStatusResponse | null
+): ServiceAction | null {
+  if (!setupStatus) return null;
+
+  for (const service of setupStatus.services) {
+    if (service.state !== "action_required") {
+      continue;
+    }
+
+    const preferredCommand =
+      service.actions.find((action) => action.kind === "command" && action.preferred) ??
+      service.actions.find((action) => action.kind === "command");
+
+    if (preferredCommand) {
+      return preferredCommand;
+    }
+  }
+
+  return null;
 }

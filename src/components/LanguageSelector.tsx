@@ -1,3 +1,4 @@
+import { useDeferredValue, useMemo, useState } from "react";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -6,11 +7,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { LanguageOption } from "@/lib/types";
 
-interface LanguageOption {
-  code: string;
-  name: string;
-}
+const EMPTY_LANGUAGES: LanguageOption[] = [];
 
 interface LanguageSelectorProps {
   sourceLang: string;
@@ -21,73 +20,31 @@ interface LanguageSelectorProps {
   targetLanguages?: LanguageOption[];
   translationStatus?: string;
   disabled?: boolean;
+  targetDisabled?: boolean;
 }
 
-const LANGUAGES: LanguageOption[] = [
-  { code: "auto", name: "Auto-detect" },
-  { code: "en", name: "English" },
-  { code: "ja", name: "Japanese" },
-  { code: "zh", name: "Chinese" },
-  { code: "ko", name: "Korean" },
-  { code: "es", name: "Spanish" },
-  { code: "fr", name: "French" },
-  { code: "de", name: "German" },
-  { code: "pt", name: "Portuguese" },
-  { code: "ru", name: "Russian" },
-  { code: "ar", name: "Arabic" },
-  { code: "hi", name: "Hindi" },
-  { code: "vi", name: "Vietnamese" },
-  { code: "th", name: "Thai" },
-  { code: "it", name: "Italian" },
-  { code: "nl", name: "Dutch" },
-  { code: "pl", name: "Polish" },
-  { code: "tr", name: "Turkish" },
-  { code: "sv", name: "Swedish" },
-  { code: "da", name: "Danish" },
-  { code: "fi", name: "Finnish" },
-  { code: "no", name: "Norwegian" },
-  { code: "cs", name: "Czech" },
-  { code: "el", name: "Greek" },
-  { code: "he", name: "Hebrew" },
-  { code: "hu", name: "Hungarian" },
-  { code: "id", name: "Indonesian" },
-  { code: "ms", name: "Malay" },
-  { code: "ro", name: "Romanian" },
-  { code: "sk", name: "Slovak" },
-  { code: "uk", name: "Ukrainian" },
-  { code: "bg", name: "Bulgarian" },
-  { code: "hr", name: "Croatian" },
-  { code: "lt", name: "Lithuanian" },
-  { code: "lv", name: "Latvian" },
-  { code: "et", name: "Estonian" },
-  { code: "sl", name: "Slovenian" },
-  { code: "sr", name: "Serbian" },
-  { code: "ca", name: "Catalan" },
-  { code: "gl", name: "Galician" },
-  { code: "eu", name: "Basque" },
-  { code: "mk", name: "Macedonian" },
-  { code: "sq", name: "Albanian" },
-  { code: "ka", name: "Georgian" },
-  { code: "hy", name: "Armenian" },
-  { code: "az", name: "Azerbaijani" },
-  { code: "kk", name: "Kazakh" },
-  { code: "uz", name: "Uzbek" },
-  { code: "tl", name: "Filipino" },
-  { code: "sw", name: "Swahili" },
-  { code: "ta", name: "Tamil" },
-  { code: "te", name: "Telugu" },
-  { code: "bn", name: "Bengali" },
-  { code: "ur", name: "Urdu" },
-  { code: "fa", name: "Persian" },
-  { code: "ne", name: "Nepali" },
-  { code: "si", name: "Sinhala" },
-  { code: "my", name: "Myanmar" },
-];
+function filterLanguages(
+  languages: LanguageOption[],
+  query: string,
+  selectedCode: string
+) {
+  if (!query.trim()) {
+    return languages;
+  }
 
-const TARGET_LANGUAGES: LanguageOption[] = [
-  { code: "", name: "No translation" },
-  ...LANGUAGES.filter((l) => l.code !== "auto"),
-];
+  const selected = languages.find((language) => language.code === selectedCode);
+  const filtered = languages.filter((language) =>
+    `${language.name} ${language.code}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase())
+  );
+
+  if (selected && !filtered.some((language) => language.code === selected.code)) {
+    return [selected, ...filtered];
+  }
+
+  return filtered;
+}
 
 export function LanguageSelector({
   sourceLang,
@@ -98,13 +55,25 @@ export function LanguageSelector({
   targetLanguages,
   translationStatus,
   disabled,
+  targetDisabled = false,
 }: LanguageSelectorProps) {
-  const availableSourceLanguages = sourceLanguages?.length
-    ? sourceLanguages
-    : LANGUAGES;
-  const availableTargetLanguages = targetLanguages?.length
-    ? [{ code: "", name: "No translation" }, ...targetLanguages]
-    : TARGET_LANGUAGES;
+  const [sourceQuery, setSourceQuery] = useState("");
+  const [targetQuery, setTargetQuery] = useState("");
+  const deferredSourceQuery = useDeferredValue(sourceQuery);
+  const deferredTargetQuery = useDeferredValue(targetQuery);
+  const availableSourceLanguages = sourceLanguages ?? EMPTY_LANGUAGES;
+  const availableTargetLanguages = useMemo(
+    () => [{ code: "", name: "Select target language" }, ...(targetLanguages ?? [])],
+    [targetLanguages]
+  );
+  const filteredSourceLanguages = useMemo(
+    () => filterLanguages(availableSourceLanguages, deferredSourceQuery, sourceLang),
+    [availableSourceLanguages, deferredSourceQuery, sourceLang]
+  );
+  const filteredTargetLanguages = useMemo(
+    () => filterLanguages(availableTargetLanguages, deferredTargetQuery, targetLang),
+    [availableTargetLanguages, deferredTargetQuery, targetLang]
+  );
 
   return (
     <div className="space-y-3">
@@ -113,6 +82,13 @@ export function LanguageSelector({
           <Label className="text-xs text-muted-foreground uppercase tracking-wider">
             Source
           </Label>
+          <input
+            value={sourceQuery}
+            onChange={(event) => setSourceQuery(event.target.value)}
+            placeholder="Search source language"
+            disabled={disabled}
+            className="h-9 w-full border border-border bg-background px-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+          />
           <Select
             value={sourceLang}
             onValueChange={onSourceChange}
@@ -122,7 +98,7 @@ export function LanguageSelector({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {availableSourceLanguages.map((lang) => (
+              {filteredSourceLanguages.map((lang) => (
                 <SelectItem key={lang.code} value={lang.code}>
                   {lang.name}
                 </SelectItem>
@@ -135,16 +111,23 @@ export function LanguageSelector({
           <Label className="text-xs text-muted-foreground uppercase tracking-wider">
             Target
           </Label>
+          <input
+            value={targetQuery}
+            onChange={(event) => setTargetQuery(event.target.value)}
+            placeholder="Search target language"
+            disabled={disabled || targetDisabled || availableTargetLanguages.length <= 1}
+            className="h-9 w-full border border-border bg-background px-3 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+          />
           <Select
             value={targetLang || "__none__"}
             onValueChange={(val) => onTargetChange(val === "__none__" ? "" : val)}
-            disabled={disabled}
+            disabled={disabled || targetDisabled || availableTargetLanguages.length <= 1}
           >
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {availableTargetLanguages.map((lang) => (
+              {filteredTargetLanguages.map((lang) => (
                 <SelectItem key={lang.code || "__none__"} value={lang.code || "__none__"}>
                   {lang.name}
                 </SelectItem>

@@ -55,6 +55,10 @@ func TestGenerateCommandWithLangs(t *testing.T) {
 		"source_lang": "ja",
 		"target_lang": "en",
 		"output_format": "srt",
+		"asr_backend": "faster_whisper",
+		"asr_model_id": "deepdml/faster-whisper-large-v3-turbo-ct2",
+		"translation_backend": "nllb",
+		"diarization_enabled": true,
 		"model_size": "large-v3",
 		"beam_size": 5,
 		"vad_filter": true
@@ -78,6 +82,18 @@ func TestGenerateCommandWithLangs(t *testing.T) {
 	if cmd.TargetLang == nil || *cmd.TargetLang != "en" {
 		t.Errorf("TargetLang = %v, want 'en'", cmd.TargetLang)
 	}
+	if cmd.ASRBackend != "faster_whisper" {
+		t.Errorf("ASRBackend = %q, want 'faster_whisper'", cmd.ASRBackend)
+	}
+	if cmd.ASRModelID != "deepdml/faster-whisper-large-v3-turbo-ct2" {
+		t.Errorf("ASRModelID = %q, want faster-whisper model", cmd.ASRModelID)
+	}
+	if cmd.TranslationBackend != "nllb" {
+		t.Errorf("TranslationBackend = %q, want 'nllb'", cmd.TranslationBackend)
+	}
+	if !cmd.DiarizationEnabled {
+		t.Error("expected DiarizationEnabled to be true")
+	}
 	if cmd.ModelSize != "large-v3" {
 		t.Errorf("ModelSize = %q, want 'large-v3'", cmd.ModelSize)
 	}
@@ -85,10 +101,14 @@ func TestGenerateCommandWithLangs(t *testing.T) {
 
 func TestResponseSerialization(t *testing.T) {
 	resp := CompleteResponse{
-		Type:         "complete",
-		OutputPath:   "C:/Videos/movie.en.srt",
-		Segments:     42,
-		DurationSecs: 123.4,
+		Type:               "complete",
+		OutputPath:         "C:/Videos/movie.en.srt",
+		Segments:           42,
+		DurationSecs:       123.4,
+		BackendSummary:     "faster_whisper + nllb",
+		DiarizationRan:     true,
+		SpeakerCount:       intPtr(2),
+		SelectedASRBackend: "faster_whisper",
 	}
 
 	data, err := json.Marshal(resp)
@@ -107,6 +127,18 @@ func TestResponseSerialization(t *testing.T) {
 	}
 	if decoded.Segments != 42 {
 		t.Errorf("Segments = %d, want 42", decoded.Segments)
+	}
+	if decoded.BackendSummary != "faster_whisper + nllb" {
+		t.Errorf("BackendSummary = %q, want backend summary", decoded.BackendSummary)
+	}
+	if !decoded.DiarizationRan {
+		t.Error("expected DiarizationRan to be true")
+	}
+	if decoded.SpeakerCount == nil || *decoded.SpeakerCount != 2 {
+		t.Errorf("SpeakerCount = %v, want 2", decoded.SpeakerCount)
+	}
+	if decoded.SelectedASRBackend != "faster_whisper" {
+		t.Errorf("SelectedASRBackend = %q, want faster_whisper", decoded.SelectedASRBackend)
 	}
 }
 
@@ -228,4 +260,114 @@ func TestAudioConfig_DeserializeMissing(t *testing.T) {
 	if cmd.AudioConfig != nil {
 		t.Error("expected AudioConfig to be nil when missing from JSON")
 	}
+}
+
+func TestSystemInfoResponseSerializationIncludesMLBackend(t *testing.T) {
+	resp := SystemInfoResponse{
+		Type:              "system_info",
+		WhisperServer:     true,
+		TranslationEngine: false,
+		MLBackend:         true,
+		GPU:               "NVIDIA",
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var decoded SystemInfoResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if !decoded.MLBackend {
+		t.Fatal("expected MLBackend to round-trip as true")
+	}
+}
+
+func TestSegmentSerializationIncludesSpeakerMetadata(t *testing.T) {
+	segment := Segment{
+		Start:        0.5,
+		End:          1.5,
+		Text:         "Hello",
+		SpeakerID:    "spk_1",
+		SpeakerLabel: "Speaker 1",
+	}
+
+	data, err := json.Marshal(segment)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var decoded Segment
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if decoded.SpeakerID != "spk_1" {
+		t.Errorf("SpeakerID = %q, want spk_1", decoded.SpeakerID)
+	}
+	if decoded.SpeakerLabel != "Speaker 1" {
+		t.Errorf("SpeakerLabel = %q, want Speaker 1", decoded.SpeakerLabel)
+	}
+}
+
+func TestCapabilitiesResponseSerialization(t *testing.T) {
+	resp := CapabilitiesResponse{
+		Type: "capabilities",
+		Defaults: BackendDefaults{
+			ASRBackend:         "faster_whisper",
+			ASRModelID:         "deepdml/faster-whisper-large-v3-turbo-ct2",
+			TranslationBackend: "nllb",
+			DiarizationEnabled: false,
+		},
+		Backends: BackendCapabilities{
+			ASR: []ASRBackendCapability{
+				{
+					ID:              "faster_whisper",
+					DisplayName:     "Faster Whisper",
+					Installed:       true,
+					DefaultModelID:  "deepdml/faster-whisper-large-v3-turbo-ct2",
+					SourceLanguages: []LanguageOption{{Code: "auto", Name: "Auto-detect"}},
+				},
+			},
+			Translation: []TranslationBackendCapability{
+				{
+					ID:              "nllb",
+					DisplayName:     "NLLB",
+					Installed:       true,
+					DefaultModelID:  "JustFrederik/nllb-200-distilled-600M-ct2-int8",
+					TargetLanguages: []LanguageOption{{Code: "eng_Latn", Name: "English"}},
+				},
+			},
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var decoded CapabilitiesResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if decoded.Type != "capabilities" {
+		t.Errorf("Type = %q, want capabilities", decoded.Type)
+	}
+	if decoded.Defaults.ASRBackend != "faster_whisper" {
+		t.Errorf("Defaults.ASRBackend = %q, want faster_whisper", decoded.Defaults.ASRBackend)
+	}
+	if len(decoded.Backends.ASR) != 1 || decoded.Backends.ASR[0].ID != "faster_whisper" {
+		t.Fatalf("unexpected ASR backends: %#v", decoded.Backends.ASR)
+	}
+	if len(decoded.Backends.Translation) != 1 || decoded.Backends.Translation[0].ID != "nllb" {
+		t.Fatalf("unexpected translation backends: %#v", decoded.Backends.Translation)
+	}
+}
+
+func intPtr(value int) *int {
+	return &value
 }
