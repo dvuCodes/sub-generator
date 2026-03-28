@@ -1,7 +1,13 @@
-export interface LanguageOption {
-  code: string;
-  name: string;
-}
+import {
+  findASRBackendCapability,
+  findTranslationBackendCapability,
+} from "./backendOptions";
+import type {
+  ASRBackend,
+  CapabilitiesResponse,
+  LanguageOption,
+  TranslationBackend,
+} from "./types";
 
 const ALL_LANGUAGES: LanguageOption[] = [
   { code: "en", name: "English" },
@@ -68,9 +74,47 @@ const SOURCE_LANGUAGES: LanguageOption[] = [
   ...ALL_LANGUAGES,
 ];
 
-export function buildLanguageOptions() {
+function ensureSourceLanguages(
+  languages: LanguageOption[] | undefined
+): LanguageOption[] {
+  if (!languages?.length) {
+    return SOURCE_LANGUAGES;
+  }
+
+  const merged = new Map<string, LanguageOption>();
+  for (const language of SOURCE_LANGUAGES) {
+    merged.set(language.code, language);
+  }
+  for (const language of languages) {
+    if (language.code !== "auto" && !merged.has(language.code)) {
+      merged.set(language.code, language);
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
+function ensureTargetLanguages(
+  languages: LanguageOption[] | undefined
+): LanguageOption[] {
+  return languages?.length
+    ? languages.filter((language) => language.code !== "auto")
+    : ALL_LANGUAGES;
+}
+
+export function buildLanguageOptions(
+  capabilities: CapabilitiesResponse | null,
+  asrBackend: ASRBackend,
+  translationBackend: TranslationBackend
+): { source: LanguageOption[]; target: LanguageOption[] } {
+  const asr = findASRBackendCapability(capabilities, asrBackend);
+  const translation =
+    translationBackend === "none"
+      ? undefined
+      : findTranslationBackendCapability(capabilities, translationBackend);
+
   return {
-    source: SOURCE_LANGUAGES,
-    target: ALL_LANGUAGES,
+    source: ensureSourceLanguages(asr?.source_languages),
+    target: ensureTargetLanguages(translation?.target_languages),
   };
 }

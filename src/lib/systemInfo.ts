@@ -1,22 +1,20 @@
-import type { LanguagesResponse, SystemInfoResponse } from "./types";
+import type { SystemInfoResponse } from "./types";
 
 export interface SystemInfoState {
   whisperServer: boolean;
   translationEngine: boolean;
+  mlBackend: boolean;
   gpu: string;
 }
 
 export function reduceSystemInfo(
-  prev: SystemInfoState | null,
-  response: LanguagesResponse | SystemInfoResponse
+  _prev: SystemInfoState | null,
+  response: SystemInfoResponse
 ): SystemInfoState | null {
-  if (response.type === "languages") {
-    return prev;
-  }
-
   return {
     whisperServer: response.whisper_server,
     translationEngine: response.translation_engine,
+    mlBackend: response.ml_backend,
     gpu: response.gpu,
   };
 }

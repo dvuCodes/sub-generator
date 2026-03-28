@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { shouldDisableGenerate, formatSetupIssue } from "./setupHelpers";
+import { describe, expect, it } from "bun:test";
+import {
+  findPromptableInstallAction,
+  isServiceReady,
+  shouldDisableGenerate,
+  formatSetupIssue,
+} from "./setupHelpers";
 import type { ServiceStatus, SetupStatusResponse } from "./types";
 
 function makeStatus(overrides: Partial<ServiceStatus>[]): SetupStatusResponse {
@@ -19,26 +24,69 @@ function makeStatus(overrides: Partial<ServiceStatus>[]): SetupStatusResponse {
 describe("shouldDisableGenerate", () => {
   it("returns false when all services ready", () => {
     const status = makeStatus([{ state: "ready", required_for: "transcription" }]);
-    expect(shouldDisableGenerate(status, "")).toBe(false);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "faster_whisper",
+        translationBackend: "none",
+      })
+    ).toBe(false);
   });
 
-  it("returns true when transcription service needs action", () => {
-    const status = makeStatus([{ state: "action_required", required_for: "transcription" }]);
-    expect(shouldDisableGenerate(status, "")).toBe(true);
+  it("blocks faster-whisper when ml-backend needs action", () => {
+    const status = makeStatus([
+      { id: "ml-backend", state: "action_required", required_for: "transcription" },
+    ]);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "faster_whisper",
+        translationBackend: "none",
+      })
+    ).toBe(true);
   });
 
-  it("returns true when translation service needs action and targetLang set", () => {
-    const status = makeStatus([{ state: "action_required", required_for: "translation" }]);
-    expect(shouldDisableGenerate(status, "en")).toBe(true);
+  it("allows whisper.cpp when only ml-backend needs action", () => {
+    const status = makeStatus([
+      { id: "ml-backend", state: "action_required", required_for: "transcription" },
+    ]);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "whisper_cpp",
+        translationBackend: "none",
+      })
+    ).toBe(false);
   });
 
-  it("returns false when translation service needs action but no targetLang", () => {
-    const status = makeStatus([{ state: "action_required", required_for: "translation" }]);
-    expect(shouldDisableGenerate(status, "")).toBe(false);
+  it("blocks gemma translation when llama needs action", () => {
+    const status = makeStatus([
+      { id: "llama", state: "action_required", required_for: "translation" },
+    ]);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "whisper_cpp",
+        translationBackend: "gemma_context",
+      })
+    ).toBe(true);
+  });
+
+  it("allows generation when translation is off even if translation setup is missing", () => {
+    const status = makeStatus([
+      { id: "llama", state: "action_required", required_for: "translation" },
+    ]);
+    expect(
+      shouldDisableGenerate(status, {
+        asrBackend: "whisper_cpp",
+        translationBackend: "none",
+      })
+    ).toBe(false);
   });
 
   it("returns false when setup status is null", () => {
-    expect(shouldDisableGenerate(null, "en")).toBe(false);
+    expect(
+      shouldDisableGenerate(null, {
+        asrBackend: "faster_whisper",
+        translationBackend: "none",
+      })
+    ).toBe(false);
   });
 });
 
@@ -61,5 +109,76 @@ describe("formatSetupIssue", () => {
   it("returns fallback for binary_not_runnable without observed_error", () => {
     expect(formatSetupIssue({ code: "binary_not_runnable" }))
       .toContain("cannot start");
+  });
+
+  it("prefers observed_error guidance for dependency issues", () => {
+    expect(
+      formatSetupIssue({
+        code: "binary_not_runnable",
+        observed_error:
+          'faster-whisper Python dependency is missing. Install packages from "python-backend\\requirements.txt".',
+      })
+    ).toContain("python-backend\\requirements.txt");
+  });
+});
+
+describe("findPromptableInstallAction", () => {
+  it("returns the preferred command action for missing dependencies", () => {
+    const status = makeStatus([
+      {
+        id: "ml-backend",
+        state: "action_required",
+        actions: [
+          {
+            id: "ml-backend/install_python_dependencies",
+            label: "Install Python dependencies",
+            description: "Install missing ML backend Python packages.",
+            kind: "command" as const,
+            preferred: true,
+          },
+          {
+            id: "ml-backend/install_bundle",
+            label: "Install ML backend bundle",
+            description: "Manual fallback",
+            kind: "manual" as const,
+          },
+        ],
+      },
+    ]);
+
+    expect(findPromptableInstallAction(status)?.id).toBe(
+      "ml-backend/install_python_dependencies"
+    );
+  });
+
+  it("returns null when there is no actionable install", () => {
+    const status = makeStatus([
+      {
+        id: "ml-backend",
+        state: "action_required",
+        actions: [
+          {
+            id: "ml-backend/install_bundle",
+            label: "Install ML backend bundle",
+            description: "Manual fallback",
+            kind: "manual" as const,
+          },
+        ],
+      },
+    ]);
+
+    expect(findPromptableInstallAction(status)).toBeNull();
+  });
+});
+
+describe("isServiceReady", () => {
+  it("returns true when a service is ready", () => {
+    const status = makeStatus([{ id: "llama", state: "ready" }]);
+    expect(isServiceReady(status, "llama")).toBe(true);
+  });
+
+  it("returns false when a service has setup issues", () => {
+    const status = makeStatus([{ id: "llama", state: "action_required" }]);
+    expect(isServiceReady(status, "llama")).toBe(false);
   });
 });

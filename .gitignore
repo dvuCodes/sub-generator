@@ -46,6 +46,8 @@ venv/
 # ML models
 *.ggml
 *.gguf
+python-backend/models/
+services/ml-backend/models/
 
 # IDE
 .vscode/*

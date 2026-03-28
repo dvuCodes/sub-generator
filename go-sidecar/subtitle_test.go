@@ -132,6 +132,29 @@ func TestSubtitleWriterVTT(t *testing.T) {
 	}
 }
 
+func TestSubtitleWriterPrefixesSpeakerLabels(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "speaker.srt")
+
+	segments := []Segment{
+		{Start: 0.0, End: 1.5, Text: "Hello there", SpeakerLabel: "Speaker 1"},
+	}
+
+	writer := NewSubtitleWriter()
+	if err := writer.Write(segments, outPath, "srt", nil); err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+
+	if !strings.Contains(string(content), "[Speaker 1] Hello there") {
+		t.Fatalf("expected speaker label prefix, got:\n%s", content)
+	}
+}
+
 func TestSubtitleWriterASS(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "test.ass")
@@ -296,6 +319,28 @@ func TestWriteTranscriptionLogCJK(t *testing.T) {
 	}
 	if !strings.Contains(text, "テスト字幕") {
 		t.Error("Missing Japanese text: テスト字幕")
+	}
+}
+
+func TestWriteTranscriptionLogIncludesSpeakerLabels(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "speaker.transcription.txt")
+
+	segments := []Segment{
+		{Start: 0.0, End: 2.0, Text: "Hello world", SpeakerLabel: "Speaker 1"},
+	}
+
+	if err := WriteTranscriptionLog(segments, outPath, "en"); err != nil {
+		t.Fatalf("WriteTranscriptionLog() error: %v", err)
+	}
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+
+	if !strings.Contains(string(content), "[00:00:00.000 --> 00:00:02.000] [Speaker 1] Hello world") {
+		t.Fatalf("expected speaker label in transcription log, got:\n%s", content)
 	}
 }
 

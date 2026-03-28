@@ -21,6 +21,7 @@
       "identifier": "shell:allow-open",
       "allow": [{ "url": "file:///*" }]
     },
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-confirm"
   ]
 }

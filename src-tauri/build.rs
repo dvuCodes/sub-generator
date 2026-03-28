@@ -14,9 +14,13 @@ fn main() {
         .parent()
         .expect("src-tauri should live under the workspace root");
     let go_sidecar_dir = workspace_dir.join("go-sidecar");
+    let python_backend_source_dir = workspace_dir.join("python-backend");
+    let ml_backend_dir = workspace_dir.join("services").join("ml-backend");
 
-    emit_rerun_markers(&go_sidecar_dir);
+    emit_rerun_markers(&go_sidecar_dir, &python_backend_source_dir);
     build_go_sidecar(&manifest_dir, &go_sidecar_dir);
+    sync_python_backend_assets(&python_backend_source_dir, &ml_backend_dir, &manifest_dir);
+    override_tauri_resource_paths(&manifest_dir);
 
     tauri_build::build()
 }
@@ -45,11 +49,13 @@ fn configure_tauri_build_for_profile() {
         *bundle = serde_json::json!({});
     }
     bundle["externalBin"] = serde_json::json!([]);
+    bundle["resources"] = serde_json::json!([]);
     env::set_var("TAURI_CONFIG", config_override.to_string());
 }
 
-fn emit_rerun_markers(go_sidecar_dir: &Path) {
+fn emit_rerun_markers(go_sidecar_dir: &Path, python_backend_source_dir: &Path) {
     println!("cargo:rerun-if-changed={}", go_sidecar_dir.display());
+    println!("cargo:rerun-if-changed={}", python_backend_source_dir.display());
 }
 
 fn build_go_sidecar(manifest_dir: &Path, go_sidecar_dir: &Path) {
@@ -105,6 +111,97 @@ fn newest_file_modified(path: &Path) -> io::Result<SystemTime> {
     }
 
     Ok(newest)
+}
+
+fn sync_python_backend_assets(
+    source_dir: &Path,
+    dev_target: &Path,
+    manifest_dir: &Path,
+) {
+    if !source_dir.exists() {
+        return;
+    }
+    let _ = sync_tree(source_dir, dev_target);
+
+    if env::var("PROFILE").as_deref() == Ok("debug") {
+        return;
+    }
+
+    let bundle_target = manifest_dir.join("resources").join("ml-backend");
+    let _ = sync_tree(source_dir, &bundle_target);
+}
+
+fn override_tauri_resource_paths(manifest_dir: &Path) {
+    if env::var("PROFILE").as_deref() == Ok("debug") {
+        return;
+    }
+
+    let mut config_override = env::var("TAURI_CONFIG")
+        .ok()
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    if !config_override.is_object() {
+        config_override = serde_json::json!({});
+    }
+
+    let root = config_override
+        .as_object_mut()
+        .expect("config override should be an object");
+    let bundle = root
+        .entry("bundle")
+        .or_insert_with(|| serde_json::json!({}));
+    if !bundle.is_object() {
+        *bundle = serde_json::json!({});
+    }
+
+    let resource_glob = manifest_dir
+        .join("resources")
+        .join("ml-backend")
+        .join("**")
+        .join("*")
+        .display()
+        .to_string();
+    bundle["resources"] = serde_json::json!([resource_glob]);
+    env::set_var("TAURI_CONFIG", config_override.to_string());
+}
+
+fn sync_tree(source: &Path, destination: &Path) -> io::Result<()> {
+    if source.is_file() {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        if !file_copy_required(source, destination)? {
+            return Ok(());
+        }
+        fs::copy(source, destination)?;
+        return Ok(());
+    }
+
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        sync_tree(&source_path, &destination_path)?;
+    }
+    Ok(())
+}
+
+fn file_copy_required(source: &Path, destination: &Path) -> io::Result<bool> {
+    let source_metadata = fs::metadata(source)?;
+    let destination_metadata = match fs::metadata(destination) {
+        Ok(metadata) => metadata,
+        Err(_) => return Ok(true),
+    };
+
+    if source_metadata.len() != destination_metadata.len() {
+        return Ok(true);
+    }
+
+    let source_modified = source_metadata.modified()?;
+    let destination_modified = destination_metadata.modified()?;
+    Ok(source_modified > destination_modified)
 }
 
 fn sync_dev_sidecar_copies(manifest_dir: &Path, source_path: &Path, is_windows: bool) {

@@ -9,17 +9,21 @@ import (
 // --- IPC Command Types (received from Tauri via stdin) ---
 
 type Command struct {
-	Command      string       `json:"command"`
-	InputVideo   string       `json:"input_video,omitempty"`
-	SourceLang   *string      `json:"source_lang,omitempty"`
-	TargetLang   *string      `json:"target_lang,omitempty"`
-	OutputFormat string       `json:"output_format,omitempty"`
-	OutputPath   *string      `json:"output_path,omitempty"`
-	ModelSize    string       `json:"model_size,omitempty"`
-	BeamSize     int          `json:"beam_size,omitempty"`
-	VADFilter    bool         `json:"vad_filter,omitempty"`
-	AudioConfig  *AudioConfig `json:"audio_config,omitempty"`
-	ActionID     string       `json:"action_id,omitempty"`
+	Command            string       `json:"command"`
+	InputVideo         string       `json:"input_video,omitempty"`
+	SourceLang         *string      `json:"source_lang,omitempty"`
+	TargetLang         *string      `json:"target_lang,omitempty"`
+	OutputFormat       string       `json:"output_format,omitempty"`
+	OutputPath         *string      `json:"output_path,omitempty"`
+	ASRBackend         string       `json:"asr_backend,omitempty"`
+	ASRModelID         string       `json:"asr_model_id,omitempty"`
+	ModelSize          string       `json:"model_size,omitempty"`
+	TranslationBackend string       `json:"translation_backend,omitempty"`
+	DiarizationEnabled bool         `json:"diarization_enabled,omitempty"`
+	BeamSize           int          `json:"beam_size,omitempty"`
+	VADFilter          bool         `json:"vad_filter,omitempty"`
+	AudioConfig        *AudioConfig `json:"audio_config,omitempty"`
+	ActionID           string       `json:"action_id,omitempty"`
 	// install_language fields
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
@@ -59,11 +63,15 @@ type StageResponse struct {
 }
 
 type CompleteResponse struct {
-	Type             string  `json:"type"`
-	OutputPath       string  `json:"output_path"`
-	TranscriptionLog string  `json:"transcription_log,omitempty"`
-	Segments         int     `json:"segments"`
-	DurationSecs     float64 `json:"duration_secs"`
+	Type               string  `json:"type"`
+	OutputPath         string  `json:"output_path"`
+	TranscriptionLog   string  `json:"transcription_log,omitempty"`
+	Segments           int     `json:"segments"`
+	DurationSecs       float64 `json:"duration_secs"`
+	BackendSummary     string  `json:"backend_summary,omitempty"`
+	SelectedASRBackend string  `json:"selected_asr_backend,omitempty"`
+	DiarizationRan     bool    `json:"diarization_ran,omitempty"`
+	SpeakerCount       *int    `json:"speaker_count,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -86,6 +94,7 @@ type SystemInfoResponse struct {
 	Type              string `json:"type"`
 	WhisperServer     bool   `json:"whisper_server"`
 	TranslationEngine bool   `json:"translation_engine"`
+	MLBackend         bool   `json:"ml_backend"`
 	GPU               string `json:"gpu"`
 }
 
@@ -103,15 +112,56 @@ type VramInfoResponse struct {
 // --- Transcription Types ---
 
 type Segment struct {
-	Start float64 `json:"start"`
-	End   float64 `json:"end"`
-	Text  string  `json:"text"`
+	Start        float64 `json:"start"`
+	End          float64 `json:"end"`
+	Text         string  `json:"text"`
+	SpeakerID    string  `json:"speaker_id,omitempty"`
+	SpeakerLabel string  `json:"speaker_label,omitempty"`
 }
 
 type TranscriptionResult struct {
 	Text     string    `json:"text"`
 	Segments []Segment `json:"segments"`
 	Language string    `json:"language,omitempty"`
+}
+
+type LanguageOption struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type BackendDefaults struct {
+	ASRBackend         string `json:"asr_backend"`
+	ASRModelID         string `json:"asr_model_id"`
+	TranslationBackend string `json:"translation_backend"`
+	DiarizationEnabled bool   `json:"diarization_enabled"`
+}
+
+type ASRBackendCapability struct {
+	ID              string           `json:"id"`
+	DisplayName     string           `json:"display_name"`
+	Installed       bool             `json:"installed"`
+	DefaultModelID  string           `json:"default_model_id,omitempty"`
+	SourceLanguages []LanguageOption `json:"source_languages,omitempty"`
+}
+
+type TranslationBackendCapability struct {
+	ID              string           `json:"id"`
+	DisplayName     string           `json:"display_name"`
+	Installed       bool             `json:"installed"`
+	DefaultModelID  string           `json:"default_model_id,omitempty"`
+	TargetLanguages []LanguageOption `json:"target_languages,omitempty"`
+}
+
+type BackendCapabilities struct {
+	ASR         []ASRBackendCapability         `json:"asr"`
+	Translation []TranslationBackendCapability `json:"translation"`
+}
+
+type CapabilitiesResponse struct {
+	Type     string              `json:"type"`
+	Defaults BackendDefaults     `json:"defaults"`
+	Backends BackendCapabilities `json:"backends"`
 }
 
 // --- Service Configuration ---
@@ -122,6 +172,7 @@ type ServiceConfig struct {
 	WhisperModelPath  string
 	WhisperPort       int
 	LlamaServerPort   int
+	MLBackendPort     int
 }
 
 func DefaultServiceConfig() ServiceConfig {
@@ -130,7 +181,14 @@ func DefaultServiceConfig() ServiceConfig {
 		roots = append(roots, ancestorRoots(cwd, 3)...)
 	}
 	if exePath, err := os.Executable(); err == nil {
-		roots = append(roots, ancestorRoots(filepath.Dir(exePath), 4)...)
+		exeDir := filepath.Dir(exePath)
+		roots = append(roots, ancestorRoots(exeDir, 4)...)
+		roots = append(
+			roots,
+			filepath.Join(exeDir, "resources"),
+			filepath.Join(exeDir, "..", "resources"),
+			filepath.Join(exeDir, "..", "Resources"),
+		)
 	}
 	return resolveServiceConfig(roots...)
 }
@@ -145,6 +203,7 @@ func resolveServiceConfig(roots ...string) ServiceConfig {
 		WhisperModelPath:  whisperModel,
 		WhisperPort:       8080,
 		LlamaServerPort:   8081,
+		MLBackendPort:     8082,
 	}
 }
 
@@ -345,4 +404,30 @@ func preferredLlamaInstallDir(searchRoots []string) string {
 	}
 
 	return filepath.Join("services", "llama-server")
+}
+
+func mlBackendLauncherName() string {
+	if os.PathSeparator == '\\' {
+		return "run.bat"
+	}
+	return "run.sh"
+}
+
+func resolveMLBackendLauncher(searchRoots []string) string {
+	roots := normalizeSearchRoots(searchRoots)
+	candidates := make([]string, 0, len(roots)*2)
+	launcher := mlBackendLauncherName()
+	for _, root := range roots {
+		installDir := preferredMLBackendInstallDir([]string{root})
+		candidates = append(candidates,
+			filepath.Join(installDir, launcher),
+			filepath.Join(root, launcher),
+		)
+	}
+
+	if path := firstExistingPath(candidates...); path != "" {
+		return path
+	}
+
+	return filepath.Join("services", "ml-backend", launcher)
 }
