@@ -26,11 +26,13 @@
 - When resolving repo-local `services/whisper-server/` assets, accept both `whisper-server` and `whisper-server.exe`; mixed Windows/WSL-style search roots can surface the non-native suffix even when the documented install is present.
 - If backend language discovery is unavailable at startup, preserve the built-in language selector options and surface the translation setup issue as a non-fatal warning instead of blocking the transcription UI.
 - Keep source transcription languages on the built-in Whisper list even when discovered translation pairs are sparse; only narrow translation targets to the backend-reported coverage.
+- In the frontend, do not auto-switch the selected ASR or translation backend just because capabilities say it needs setup; preserve the current choice unless that backend is absent entirely, so slow capability probes do not flip the UI to source-only or whisper.cpp.
 - When the UI leaves source language on auto-detect, still send `language=auto` to `whisper-server`; omitting the field lets the bundled server default to English and can mis-transcribe foreign speech.
 - For video transcription, start `whisper-server` with `--convert` and validate `ffmpeg` first; otherwise the server can reject `.mp4`/video uploads with a generic `400 Invalid request`.
 - The bundled `whisper-server` returns subtitle-ready timestamps only with `response_format=verbose_json`; parse current `segments[].start`/`end` values as seconds, and keep legacy `t0`/`t1` millisecond parsing only as a fallback.
 - If `whisper-server` returns zero segments, fail in the pipeline with explicit no-speech / missing-timestamps guidance before the subtitle writer runs; do not surface `astisub: no subtitles to write` directly.
 - If `whisper-server` returns a mix of usable and unusable segment timings, drop only the unusable segments and continue; fail only when no subtitle-safe timed segments remain.
+- Treat ASR segments longer than subtitle-safe bounds (currently 20s) as unusable timings; if enhanced audio produced them, retry once on the original input instead of translating the hallucinated span.
 - If enhanced audio preprocessing yields VAD activity but Whisper still returns no usable transcript segments, retry transcription once on the original input before surfacing a no-speech / missing-timestamps error.
 - The Go sidecar pipeline must stop managed `whisper-server` / `llama-server` processes on every terminal path itself; do not rely on the frontend to send `stop_services` after `complete` or `error`, or VRAM can remain allocated if that round-trip is missed.
 - For this desktop-only Tauri app, avoid `staticlib` in `src-tauri/Cargo.toml`; it produces a massive `app_lib.lib` on Windows and can fail rebuilds with archive rename access errors.
@@ -45,6 +47,7 @@
 - Treat `python-backend/` as the canonical ML backend source tree and `services/ml-backend/` as a staged runtime mirror/cache root; do not maintain a second Python implementation under `services/ml-backend/`.
 - Keep the Python ML backend launcher scripts pointed at the staged root `service.py`; the build copies `python-backend/` as-is and does not wrap it under an extra `app/` directory.
 - Do not list the staged `src-tauri/resources/ml-backend` tree in `tauri.conf.json` for dev builds; Tauri will watch it and can loop forever if `build.rs` refreshes those files. Inject packaged ML-backend resources from `build.rs` only for non-debug builds.
+- Treat Faster Whisper CUDA DLL failures on Windows as both startup and runtime fallback cases; `cublas64_12.dll` issues can surface lazily during segment generation, so retry on CPU instead of only guarding model construction.
 - When making file edits, use the Codex `apply_patch` tool (do not embed `apply_patch` inside shell commands).
 - Do not propose follow-up tasks or enhancements at the end of your final answer.
 - When working on frontend design, use playwright to test and confirm desired feature implemention.

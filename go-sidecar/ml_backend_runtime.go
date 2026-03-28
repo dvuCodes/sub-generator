@@ -35,6 +35,7 @@ func preferredMLBackendInstallDir(searchRoots []string) string {
 
 	for _, root := range normalizeSearchRoots(searchRoots) {
 		candidates := []string{
+			filepath.Join(root, "ml-backend"),
 			filepath.Join(root, "services", "ml-backend"),
 			filepath.Join(root, "python-backend"),
 		}

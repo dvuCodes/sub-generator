@@ -30,18 +30,22 @@ export function resolvePreferredASRBackend(
   capabilities: CapabilitiesResponse | null,
   current: ASRBackend
 ): ASRBackend {
-  const currentCapability = findASRBackendCapability(capabilities, current);
-  if (currentCapability?.installed) {
+  if (!capabilities) {
     return current;
   }
 
-  const preferred = capabilities?.defaults.asr_backend ?? DEFAULT_ASR_BACKEND;
+  const currentCapability = findASRBackendCapability(capabilities, current);
+  if (currentCapability) {
+    return current;
+  }
+
+  const preferred = capabilities.defaults.asr_backend ?? DEFAULT_ASR_BACKEND;
   const preferredCapability = findASRBackendCapability(capabilities, preferred);
   if (preferredCapability?.installed) {
     return preferred;
   }
 
-  return capabilities?.backends.asr.find((item) => item.installed)?.id ?? current;
+  return capabilities.backends.asr.find((item) => item.installed)?.id ?? current;
 }
 
 export function resolvePreferredTranslationBackend(
@@ -52,13 +56,17 @@ export function resolvePreferredTranslationBackend(
     return current;
   }
 
+  if (!capabilities) {
+    return current;
+  }
+
   const currentCapability = findTranslationBackendCapability(capabilities, current);
-  if (currentCapability?.installed) {
+  if (currentCapability) {
     return current;
   }
 
   const preferred =
-    capabilities?.defaults.translation_backend ?? DEFAULT_TRANSLATION_BACKEND;
+    capabilities.defaults.translation_backend ?? DEFAULT_TRANSLATION_BACKEND;
   if (preferred !== "none") {
     const preferredCapability = findTranslationBackendCapability(
       capabilities,
@@ -69,9 +77,7 @@ export function resolvePreferredTranslationBackend(
     }
   }
 
-  return (
-    capabilities?.backends.translation.find((item) => item.installed)?.id ?? "none"
-  );
+  return capabilities.backends.translation.find((item) => item.installed)?.id ?? "none";
 }
 
 export function resolveASRModelId(

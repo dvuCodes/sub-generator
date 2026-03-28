@@ -170,7 +170,10 @@ func runInstallDependency(actionID string, svcManager *ServiceManager) {
 }
 
 func listAvailableLanguages() ([]LanguagePair, error) {
-	capabilities := buildCapabilitiesResponse(NewServiceManager(DefaultServiceConfig()))
+	svcManager := NewServiceManager(DefaultServiceConfig())
+	defer svcManager.StopMLBackend()
+
+	capabilities := buildCapabilitiesResponse(svcManager)
 	targets := capabilities.Backends.Translation
 	if len(targets) == 0 {
 		return StaticLanguagePairs(), nil
@@ -212,13 +215,12 @@ func buildCapabilitiesResponse(svcManager *ServiceManager) CapabilitiesResponse 
 
 	for i := range capabilities.Backends.ASR {
 		if capabilities.Backends.ASR[i].ID == "whisper_cpp" {
-			whisperBinary, whisperModel := resolveWhisperAssets(svcManager.config.SearchRoots, "base")
-			capabilities.Backends.ASR[i].Installed = validateWhisperStartup(svcManager.config.SearchRoots, whisperBinary, whisperModel) == nil
+			capabilities.Backends.ASR[i].Installed = whisperCPPBackendAvailable(svcManager.config.SearchRoots)
 		}
 	}
 	for i := range capabilities.Backends.Translation {
 		if capabilities.Backends.Translation[i].ID == gemmaTranslationBackend {
-			capabilities.Backends.Translation[i].Installed = resolveGemmaModelPath(svcManager.config.SearchRoots) != ""
+			capabilities.Backends.Translation[i].Installed = gemmaTranslationAvailable(svcManager.config.SearchRoots)
 		}
 	}
 
@@ -237,6 +239,16 @@ func buildCapabilitiesResponse(svcManager *ServiceManager) CapabilitiesResponse 
 
 	mergeCapabilities(&capabilities, remote)
 	return capabilities
+}
+
+func whisperCPPBackendAvailable(searchRoots []string) bool {
+	whisperBinary, _ := resolveWhisperAssets(searchRoots, "base")
+	return validateCommandAvailability(whisperBinary, "whisper-server") == nil
+}
+
+func gemmaTranslationAvailable(searchRoots []string) bool {
+	llamaBinary := resolveLlamaServerBinary(searchRoots)
+	return validateCommandAvailability(llamaBinary, "llama-server") == nil
 }
 
 func mergeCapabilities(base *CapabilitiesResponse, remote *CapabilitiesResponse) {

@@ -24,5 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix subtitle stitching and output formatting to preserve speaker boundaries and speaker labels when diarization is enabled.
 - Fix `tauri dev` rebuild loops caused by watching generated `src-tauri/resources/ml-backend` files during debug builds.
 - Fix capability merging so installed `whisper.cpp` and Gemma fallback backends remain selectable when the ML backend is available.
+- Fix packaged desktop builds to discover bundled `ml-backend` resources and clean up temporary backend processes used for language discovery.
+- Fix backend capability checks so `whisper.cpp` and Gemma remain selectable before their models are downloaded on demand.
+- Fix Gemma translation to preserve diarization speaker metadata in translated subtitles.
 - Fix setup validation so broken ML backend startups surface actionable setup errors instead of failing later during generation.
+- Fix frontend backend selection so the current ASR and translation choices are preserved while capability probes are loading or report setup requirements.
 - Fix Windows Faster Whisper CUDA DLL failures by retrying transcription on CPU when CUDA libraries are unavailable at load or runtime.

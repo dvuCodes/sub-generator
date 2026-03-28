@@ -51,16 +51,60 @@ const capabilities: CapabilitiesResponse = {
 };
 
 describe("resolvePreferredASRBackend", () => {
-  it("falls back to whisper.cpp when the default backend is not installed", () => {
+  it("preserves the current backend when capabilities are still loading", () => {
+    expect(resolvePreferredASRBackend(null, "faster_whisper")).toBe(
+      "faster_whisper"
+    );
+  });
+
+  it("preserves the current backend when it is known but needs setup", () => {
     expect(resolvePreferredASRBackend(capabilities, "faster_whisper")).toBe(
+      "faster_whisper"
+    );
+  });
+
+  it("falls back when the current backend is missing from capabilities", () => {
+    expect(
+      resolvePreferredASRBackend(
+        {
+          ...capabilities,
+          backends: {
+            ...capabilities.backends,
+            asr: [capabilities.backends.asr[1]],
+          },
+        },
+        "faster_whisper"
+      )
+    ).toBe(
       "whisper_cpp"
     );
   });
 });
 
 describe("resolvePreferredTranslationBackend", () => {
-  it("falls back to gemma when nllb is unavailable", () => {
+  it("preserves the current translation backend when capabilities are still loading", () => {
+    expect(resolvePreferredTranslationBackend(null, "nllb")).toBe("nllb");
+  });
+
+  it("preserves the current translation backend when it is known but needs setup", () => {
     expect(resolvePreferredTranslationBackend(capabilities, "nllb")).toBe(
+      "nllb"
+    );
+  });
+
+  it("falls back when the current translation backend is missing", () => {
+    expect(
+      resolvePreferredTranslationBackend(
+        {
+          ...capabilities,
+          backends: {
+            ...capabilities.backends,
+            translation: [capabilities.backends.translation[1]],
+          },
+        },
+        "nllb"
+      )
+    ).toBe(
       "gemma_context"
     );
   });

@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestListAvailableLanguagesReturnsStaticPairs(t *testing.T) {
 	langs, err := listAvailableLanguages()
@@ -128,6 +132,45 @@ func TestMergeCapabilitiesPreservesLocalBackendAvailability(t *testing.T) {
 	}
 }
 
+func TestBuildCapabilitiesMarksWhisperCPPInstalledWhenAnyModelExists(t *testing.T) {
+	root := t.TempDir()
+
+	whisperDir := filepath.Join(root, "services", "whisper-server")
+	if err := os.MkdirAll(filepath.Join(whisperDir, "models"), 0o755); err != nil {
+		t.Fatalf("mkdir whisper dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(whisperDir, whisperExecutableName()), []byte(""), 0o644); err != nil {
+		t.Fatalf("write whisper binary: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(whisperDir, "models", modelFilename("turbo")), []byte(""), 0o644); err != nil {
+		t.Fatalf("write whisper turbo model: %v", err)
+	}
+
+	capabilities := buildCapabilitiesResponse(NewServiceManager(resolveServiceConfig(root)))
+	backend := findASRBackendByID(t, capabilities, "whisper_cpp")
+	if !backend.Installed {
+		t.Fatal("expected whisper_cpp to be available when the binary exists and at least one supported model is installed")
+	}
+}
+
+func TestBuildCapabilitiesMarksGemmaInstalledWhenLlamaBinaryExists(t *testing.T) {
+	root := t.TempDir()
+
+	llamaDir := filepath.Join(root, "services", "llama-server")
+	if err := os.MkdirAll(llamaDir, 0o755); err != nil {
+		t.Fatalf("mkdir llama dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(llamaDir, llamaExecutableName()), []byte(""), 0o644); err != nil {
+		t.Fatalf("write llama binary: %v", err)
+	}
+
+	capabilities := buildCapabilitiesResponse(NewServiceManager(resolveServiceConfig(root)))
+	backend := findTranslationBackendByID(t, capabilities, gemmaTranslationBackend)
+	if !backend.Installed {
+		t.Fatal("expected gemma_context to stay selectable when llama-server is installed and the model can be downloaded on demand")
+	}
+}
+
 func TestLocalServiceBaseURLUsesIPv4Loopback(t *testing.T) {
 	if got := localServiceBaseURL(5000); got != "http://127.0.0.1:5000" {
 		t.Fatalf("localServiceBaseURL() = %q, want %q", got, "http://127.0.0.1:5000")
@@ -172,4 +215,30 @@ func TestHandleCommandGenerateRunsAsynchronously(t *testing.T) {
 
 	close(release)
 	<-done
+}
+
+func findASRBackendByID(t *testing.T, capabilities CapabilitiesResponse, id string) ASRBackendCapability {
+	t.Helper()
+
+	for _, backend := range capabilities.Backends.ASR {
+		if backend.ID == id {
+			return backend
+		}
+	}
+
+	t.Fatalf("ASR backend %q not found in %+v", id, capabilities.Backends.ASR)
+	return ASRBackendCapability{}
+}
+
+func findTranslationBackendByID(t *testing.T, capabilities CapabilitiesResponse, id string) TranslationBackendCapability {
+	t.Helper()
+
+	for _, backend := range capabilities.Backends.Translation {
+		if backend.ID == id {
+			return backend
+		}
+	}
+
+	t.Fatalf("translation backend %q not found in %+v", id, capabilities.Backends.Translation)
+	return TranslationBackendCapability{}
 }

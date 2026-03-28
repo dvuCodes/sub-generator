@@ -378,9 +378,11 @@ func (t *Translator) TranslateBlocks(
 
 		for i, seg := range block.Segments {
 			allSegments = append(allSegments, Segment{
-				Start: seg.Start,
-				End:   seg.End,
-				Text:  translations[i],
+				Start:        seg.Start,
+				End:          seg.End,
+				Text:         translations[i],
+				SpeakerID:    seg.SpeakerID,
+				SpeakerLabel: seg.SpeakerLabel,
 			})
 		}
 
