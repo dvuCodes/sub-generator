@@ -29,6 +29,7 @@ import { formatRuntimeError } from "./lib/runtimeError";
 import { SetupBanner } from "./components/SetupBanner";
 import {
   findPromptableInstallAction,
+  isServiceReady,
   shouldDisableGenerate,
 } from "./lib/setupHelpers";
 import {
@@ -128,12 +129,14 @@ function App() {
     selectedASRBackend,
     selectedTranslationBackend
   );
+  const mlBackendReady = isServiceReady(setupStatus, "ml-backend");
+  const llamaReady = isServiceReady(setupStatus, "llama");
   const asrOptions =
     capabilities?.backends.asr ?? [
       {
         id: "faster_whisper",
         display_name: "Faster Whisper",
-        installed: systemInfo?.mlBackend ?? false,
+        installed: mlBackendReady,
         default_model_id: capabilities?.defaults.asr_model_id ?? "",
         source_languages: [],
       },
@@ -150,14 +153,14 @@ function App() {
       {
         id: "nllb",
         display_name: "NLLB",
-        installed: systemInfo?.mlBackend ?? false,
+        installed: mlBackendReady,
         default_model_id: "",
         target_languages: [],
       },
       {
         id: "gemma_context",
         display_name: "Gemma Context",
-        installed: systemInfo?.translationEngine ?? false,
+        installed: llamaReady,
         default_model_id: "",
         target_languages: [],
       },

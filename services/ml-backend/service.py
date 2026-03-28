@@ -62,6 +62,23 @@ NLLB_LANG_MAP = {
     "tr": "tur_Latn",
 }
 
+CUDA_DLL_ERROR_MARKERS = (
+    "cublas64_",
+    "cublaslt64_",
+    "cudart64_",
+    "cudnn",
+    "cuda",
+)
+
+CUDA_DLL_FILE_NAMES = (
+    "cublas64_12.dll",
+    "cublasLt64_12.dll",
+    "cudart64_12.dll",
+)
+
+WINDOWS_DLL_DIRECTORY_HANDLES: list[Any] = []
+REGISTERED_WINDOWS_DLL_DIRECTORIES: set[str] = set()
+
 
 class RequestError(ValueError):
     pass
@@ -86,16 +103,91 @@ class LoadedModels:
 
 
 def detect_device() -> str:
+    if torch_cuda_available() or ctranslate2_cuda_available():
+        return "cuda"
+    return "cpu"
+
+
+def torch_cuda_available() -> bool:
     try:
         import torch  # type: ignore
 
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        return bool(torch.cuda.is_available())
     except Exception:
-        return "cpu"
+        return False
+
+
+def ctranslate2_cuda_available() -> bool:
+    try:
+        import ctranslate2  # type: ignore
+
+        return bool(ctranslate2.get_supported_compute_types("cuda"))
+    except Exception:
+        return False
 
 
 def module_available(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
+
+
+def is_cuda_library_load_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    if "dll" not in message:
+        return False
+    if "cannot be loaded" not in message and "not found" not in message:
+        return False
+    return any(marker in message for marker in CUDA_DLL_ERROR_MARKERS)
+
+
+def candidate_cuda_runtime_dirs() -> list[Path]:
+    script_dir = Path(__file__).resolve().parent
+    configured = os.environ.get("SUBGEN_CUDA_DLL_DIR")
+    candidates = [
+        Path(configured).expanduser() if configured else None,
+        script_dir / "llama-server",
+        script_dir.parent / "llama-server",
+        script_dir / "services" / "llama-server",
+        script_dir.parent / "services" / "llama-server",
+        script_dir.parent.parent / "services" / "llama-server",
+    ]
+
+    resolved: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            path = candidate.resolve()
+        except FileNotFoundError:
+            continue
+        path_key = str(path)
+        if path_key in seen or not path.is_dir():
+            continue
+        if not any((path / dll_name).exists() for dll_name in CUDA_DLL_FILE_NAMES):
+            continue
+        seen.add(path_key)
+        resolved.append(path)
+    return resolved
+
+
+def configure_windows_cuda_runtime_dirs() -> None:
+    if os.name != "nt":
+        return
+
+    path_entries = os.environ.get("PATH", "").split(os.pathsep)
+    for directory in candidate_cuda_runtime_dirs():
+        directory_str = str(directory)
+        if directory_str not in path_entries:
+            path_entries.insert(0, directory_str)
+        if directory_str in REGISTERED_WINDOWS_DLL_DIRECTORIES:
+            continue
+        add_dll_directory = getattr(os, "add_dll_directory", None)
+        if add_dll_directory is None:
+            continue
+        WINDOWS_DLL_DIRECTORY_HANDLES.append(add_dll_directory(directory_str))
+        REGISTERED_WINDOWS_DLL_DIRECTORIES.add(directory_str)
+
+    os.environ["PATH"] = os.pathsep.join(path_entries)
 
 
 def faster_whisper_available() -> bool:
@@ -310,37 +402,29 @@ class App:
     def transcribe(self, payload: Any) -> dict[str, Any]:
         request = require_object(payload)
         input_path = require_path(request, "input_video")
-        model = self._load_whisper_model(request.get("model_id") or DEFAULT_ASR_MODEL_ID)
+        model_id = request.get("model_id") or DEFAULT_ASR_MODEL_ID
         language = request.get("source_lang")
         if language == "auto":
             language = None
 
-        segments, info = model.transcribe(
-            str(input_path),
-            language=language,
-            beam_size=int(request.get("beam_size") or 5),
-            vad_filter=bool(request.get("vad_filter", True)),
-            word_timestamps=False,
-        )
-        normalized_segments = []
-        texts = []
-        for segment in segments:
-            text = (getattr(segment, "text", "") or "").strip()
-            normalized_segments.append(
-                {
-                    "start": float(getattr(segment, "start")),
-                    "end": float(getattr(segment, "end")),
-                    "text": text,
-                }
+        try:
+            return self._transcribe_with_model(model_id, input_path, request, language)
+        except Exception as exc:
+            if not is_cuda_library_load_error(exc):
+                raise
+            print(
+                "[ml-backend] Faster Whisper CUDA runtime is unavailable during transcription; retrying on CPU.",
+                file=sys.stderr,
             )
-            if text:
-                texts.append(text)
-
-        return {
-            "text": " ".join(texts).strip(),
-            "segments": normalized_segments,
-            "language": getattr(info, "language", language or "") or "",
-        }
+            with self._lock:
+                self.loaded.whisper.pop(model_id, None)
+            return self._transcribe_with_model(
+                model_id,
+                input_path,
+                request,
+                language,
+                force_device="cpu",
+            )
 
     def translate_segments(self, payload: Any) -> dict[str, Any]:
         request = require_object(payload)
@@ -379,7 +463,46 @@ class App:
 
         return {"segments": segments, "speaker_count": len(speaker_map)}
 
-    def _load_whisper_model(self, model_id: str) -> Any:
+    def _transcribe_with_model(
+        self,
+        model_id: str,
+        input_path: Path,
+        request: dict[str, Any],
+        language: str | None,
+        force_device: str | None = None,
+    ) -> dict[str, Any]:
+        if force_device is None:
+            model = self._load_whisper_model(model_id)
+        else:
+            model = self._load_whisper_model(model_id, force_device=force_device)
+        segments, info = model.transcribe(
+            str(input_path),
+            language=language,
+            beam_size=int(request.get("beam_size") or 5),
+            vad_filter=bool(request.get("vad_filter", True)),
+            word_timestamps=False,
+        )
+        normalized_segments = []
+        texts = []
+        for segment in segments:
+            text = (getattr(segment, "text", "") or "").strip()
+            normalized_segments.append(
+                {
+                    "start": float(getattr(segment, "start")),
+                    "end": float(getattr(segment, "end")),
+                    "text": text,
+                }
+            )
+            if text:
+                texts.append(text)
+
+        return {
+            "text": " ".join(texts).strip(),
+            "segments": normalized_segments,
+            "language": getattr(info, "language", language or "") or "",
+        }
+
+    def _load_whisper_model(self, model_id: str, force_device: str | None = None) -> Any:
         with self._lock:
             existing = self.loaded.whisper.get(model_id)
             if existing is not None:
@@ -391,9 +514,19 @@ class App:
                 raise BackendUnavailableError(f"faster-whisper is not available: {exc}") from exc
 
             model_ref = resolve_model_reference(model_id, self.cache_dir / "whisper")
-            device = detect_device()
+            configure_windows_cuda_runtime_dirs()
+            device = force_device or detect_device()
             compute_type = "float16" if device == "cuda" else "int8"
-            model = WhisperModel(model_ref, device=device, compute_type=compute_type)
+            try:
+                model = WhisperModel(model_ref, device=device, compute_type=compute_type)
+            except Exception as exc:
+                if device != "cuda" or not is_cuda_library_load_error(exc):
+                    raise
+                print(
+                    "[ml-backend] Faster Whisper CUDA runtime is unavailable during model load; falling back to CPU.",
+                    file=sys.stderr,
+                )
+                model = WhisperModel(model_ref, device="cpu", compute_type="int8")
             self.loaded.whisper[model_id] = model
             return model
 

@@ -1,6 +1,11 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -63,6 +68,29 @@ func TestValidateTranscriptionResultDropsUnusableSegmentsWhenTimedSegmentsRemain
 		Segments: []Segment{
 			{Start: 0, End: 1, Text: "hello"},
 			{Start: 1109, End: 1109, Text: "there"},
+		},
+	}
+
+	err := validateTranscriptionResult(result)
+	if err != nil {
+		t.Fatalf("validateTranscriptionResult() error = %v, want nil", err)
+	}
+
+	if len(result.Segments) != 1 {
+		t.Fatalf("segments = %d, want 1 usable segment", len(result.Segments))
+	}
+
+	if got := result.Segments[0]; got.Start != 0 || got.End != 1 || got.Text != "hello" {
+		t.Fatalf("remaining segment = %#v, want the valid timed segment to be preserved", got)
+	}
+}
+
+func TestValidateTranscriptionResultDropsOverlongSegmentsWhenTimedSegmentsRemain(t *testing.T) {
+	result := &TranscriptionResult{
+		Text: "hello there",
+		Segments: []Segment{
+			{Start: 0, End: 1, Text: "hello"},
+			{Start: 10, End: 700, Text: "there"},
 		},
 	}
 
@@ -213,5 +241,77 @@ func TestTranscribeWithValidationFallbackReturnsOriginalErrorWhenRawRetryAlsoHas
 	message := strings.ToLower(err.Error())
 	if !strings.Contains(message, "no speech") {
 		t.Fatalf("error = %q, want no speech guidance", err.Error())
+	}
+}
+
+func TestPipelineTranscribeRetriesRawInputAfterInvalidMLBackendResult(t *testing.T) {
+	attempts := make([]string, 0, 2)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/asr/transcribe" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		var req asrTranscribeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		attempts = append(attempts, req.InputVideo)
+
+		result := TranscriptionResult{
+			Text: "hello world",
+			Segments: []Segment{
+				{Start: 0, End: 1.5, Text: "hello world"},
+			},
+			Language: "en",
+		}
+		if req.InputVideo == "enhanced.wav" {
+			result.Segments = []Segment{
+				{Start: 0, End: 700, Text: "hallucinated"},
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Fatalf("failed to encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(server.URL) error = %v", err)
+	}
+	port, err := strconv.Atoi(parsedURL.Port())
+	if err != nil {
+		t.Fatalf("strconv.Atoi(parsedURL.Port()) error = %v", err)
+	}
+
+	pipeline := &Pipeline{
+		svcManager: NewServiceManager(ServiceConfig{MLBackendPort: port}),
+	}
+
+	result, err := pipeline.transcribe(
+		Command{
+			InputVideo: "video.mp4",
+			BeamSize:   5,
+			VADFilter:  true,
+		},
+		"faster_whisper",
+		"deepdml/faster-whisper-large-v3-turbo-ct2",
+		"enhanced.wav",
+	)
+	if err != nil {
+		t.Fatalf("Pipeline.transcribe() error = %v, want nil", err)
+	}
+
+	if len(attempts) != 2 {
+		t.Fatalf("attempts = %d, want 2", len(attempts))
+	}
+	if attempts[0] != "enhanced.wav" || attempts[1] != "video.mp4" {
+		t.Fatalf("attempt order = %#v, want [enhanced.wav video.mp4]", attempts)
+	}
+	if len(result.Segments) != 1 || result.Segments[0].End != 1.5 {
+		t.Fatalf("result = %#v, want raw-input segments after retry", result)
 	}
 }

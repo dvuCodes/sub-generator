@@ -298,3 +298,32 @@ func TestCheckMLBackendReportsMissingFasterWhisperDependency(t *testing.T) {
 		t.Fatalf("expected second setup action to be manual, got %+v", status.Actions)
 	}
 }
+
+func TestCheckMLBackendReportsStartupFailures(t *testing.T) {
+	root := t.TempDir()
+	installDir := filepath.Join(root, "services", "ml-backend")
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		t.Fatalf("mkdir install dir: %v", err)
+	}
+
+	launcherPath := filepath.Join(installDir, mlBackendLauncherName())
+	if err := os.WriteFile(launcherPath, []byte("#!/usr/bin/env bash\nexit 1\n"), 0o644); err != nil {
+		t.Fatalf("write launcher: %v", err)
+	}
+
+	status := checkMLBackend(
+		ServiceConfig{SearchRoots: []string{root}, MLBackendPort: 6553},
+		NewActionRegistry(),
+		mlBackendDownloadActions(installDir),
+	)
+
+	if status.State != "action_required" {
+		t.Fatalf("expected action_required, got %q", status.State)
+	}
+	if len(status.Issues) == 0 || status.Issues[0].Code != "binary_not_runnable" {
+		t.Fatalf("expected binary_not_runnable issue, got %+v", status.Issues)
+	}
+	if status.Issues[0].ObservedError == "" {
+		t.Fatal("expected startup error details to be surfaced")
+	}
+}

@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from http.client import HTTPConnection
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import ModuleType
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -71,6 +72,129 @@ class ServiceTests(unittest.TestCase):
                         "segments": [],
                     }
                 )
+
+    def test_detect_device_uses_ctranslate2_cuda_when_torch_is_cpu_only(self):
+        original_torch_cuda_available = service.torch_cuda_available
+        original_ctranslate2_cuda_available = service.ctranslate2_cuda_available
+        service.torch_cuda_available = lambda: False
+        service.ctranslate2_cuda_available = lambda: True
+        try:
+            self.assertEqual(service.detect_device(), "cuda")
+        finally:
+            service.torch_cuda_available = original_torch_cuda_available
+            service.ctranslate2_cuda_available = original_ctranslate2_cuda_available
+
+    def test_is_cuda_library_load_error_matches_cublas_failure(self):
+        self.assertTrue(
+            service.is_cuda_library_load_error(
+                RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+            )
+        )
+
+    def test_load_whisper_model_falls_back_to_cpu_when_cuda_init_fails(self):
+        calls = []
+
+        class FakeWhisperModel:
+            def __init__(self, model_ref, device, compute_type):
+                calls.append((model_ref, device, compute_type))
+                if device == "cuda":
+                    raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+
+        fake_module = ModuleType("faster_whisper")
+        fake_module.WhisperModel = FakeWhisperModel
+
+        original_module = sys.modules.get("faster_whisper")
+        original_detect_device = service.detect_device
+        original_resolve_model_reference = service.resolve_model_reference
+        sys.modules["faster_whisper"] = fake_module
+        service.detect_device = lambda: "cuda"
+        service.resolve_model_reference = lambda model_id, cache_root: f"resolved::{model_id}"
+        try:
+            with TemporaryDirectory() as tmp:
+                app = service.App(cache_dir=Path(tmp))
+                model = app._load_whisper_model("demo-model")
+        finally:
+            if original_module is None:
+                del sys.modules["faster_whisper"]
+            else:
+                sys.modules["faster_whisper"] = original_module
+            service.detect_device = original_detect_device
+            service.resolve_model_reference = original_resolve_model_reference
+
+        self.assertIsInstance(model, FakeWhisperModel)
+        self.assertEqual(
+            calls,
+            [
+                ("resolved::demo-model", "cuda", "float16"),
+                ("resolved::demo-model", "cpu", "int8"),
+            ],
+        )
+
+    def test_transcribe_retries_on_cpu_when_cuda_runtime_missing(self):
+        calls = []
+
+        class FakeSegment:
+            def __init__(self, start, end, text):
+                self.start = start
+                self.end = end
+                self.text = text
+
+        class FakeWhisperModel:
+            def __init__(self, model_ref, device, compute_type):
+                calls.append((model_ref, device, compute_type))
+                self.device = device
+
+            def transcribe(self, path, **kwargs):
+                info = SimpleNamespace(language="ja")
+                if self.device == "cuda":
+                    def failing_segments():
+                        raise RuntimeError(
+                            "Library cublas64_12.dll is not found or cannot be loaded"
+                        )
+                        yield
+
+                    return failing_segments(), info
+
+                return [FakeSegment(0.0, 1.0, "hello")], info
+
+        fake_module = ModuleType("faster_whisper")
+        fake_module.WhisperModel = FakeWhisperModel
+
+        original_module = sys.modules.get("faster_whisper")
+        original_detect_device = service.detect_device
+        original_resolve_model_reference = service.resolve_model_reference
+        sys.modules["faster_whisper"] = fake_module
+        service.detect_device = lambda: "cuda"
+        service.resolve_model_reference = lambda model_id, cache_root: f"resolved::{model_id}"
+        try:
+            with TemporaryDirectory() as tmp:
+                input_path = Path(tmp) / "clip.wav"
+                input_path.write_bytes(b"audio")
+                app = service.App(cache_dir=Path(tmp))
+                payload = app.transcribe(
+                    {
+                        "input_video": str(input_path),
+                        "source_lang": "ja",
+                        "model_id": "demo-model",
+                    }
+                )
+        finally:
+            if original_module is None:
+                del sys.modules["faster_whisper"]
+            else:
+                sys.modules["faster_whisper"] = original_module
+            service.detect_device = original_detect_device
+            service.resolve_model_reference = original_resolve_model_reference
+
+        self.assertEqual(payload["text"], "hello")
+        self.assertEqual(payload["segments"][0]["text"], "hello")
+        self.assertEqual(
+            calls,
+            [
+                ("resolved::demo-model", "cuda", "float16"),
+                ("resolved::demo-model", "cpu", "int8"),
+            ],
+        )
 
 
 class EndpointTests(unittest.TestCase):

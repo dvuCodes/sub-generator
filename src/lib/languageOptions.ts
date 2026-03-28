@@ -81,8 +81,17 @@ function ensureSourceLanguages(
     return SOURCE_LANGUAGES;
   }
 
-  const withoutAuto = languages.filter((language) => language.code !== "auto");
-  return [{ code: "auto", name: "Auto-detect" }, ...withoutAuto];
+  const merged = new Map<string, LanguageOption>();
+  for (const language of SOURCE_LANGUAGES) {
+    merged.set(language.code, language);
+  }
+  for (const language of languages) {
+    if (language.code !== "auto" && !merged.has(language.code)) {
+      merged.set(language.code, language);
+    }
+  }
+
+  return Array.from(merged.values());
 }
 
 function ensureTargetLanguages(

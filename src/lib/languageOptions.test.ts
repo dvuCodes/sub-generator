@@ -57,11 +57,12 @@ describe("buildLanguageOptions", () => {
   it("uses the selected backend language coverage when available", () => {
     const opts = buildLanguageOptions(capabilities, "faster_whisper", "nllb");
 
-    expect(opts.source).toEqual([
-      { code: "auto", name: "Auto-detect" },
-      { code: "en", name: "English" },
-      { code: "ja", name: "Japanese" },
-    ]);
+    expect(opts.source[0]).toEqual({ code: "auto", name: "Auto-detect" });
+    expect(opts.source.length).toBeGreaterThan(55);
+    expect(opts.source.find((lang) => lang.code === "fi")).toEqual({
+      code: "fi",
+      name: "Finnish",
+    });
     expect(opts.target).toEqual([
       { code: "en", name: "English" },
       { code: "fr", name: "French" },

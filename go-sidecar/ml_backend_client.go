@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const mlBackendRequestTimeout = 30 * time.Minute
+
 type MLBackendClient struct {
 	baseURL string
 	client  *http.Client
@@ -19,7 +21,7 @@ func NewMLBackendClient(baseURL string) *MLBackendClient {
 	return &MLBackendClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client: &http.Client{
-			Timeout: 5 * time.Minute,
+			Timeout: mlBackendRequestTimeout,
 		},
 	}
 }
