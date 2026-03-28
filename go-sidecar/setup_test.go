@@ -235,6 +235,21 @@ func TestPreferredMLBackendInstallDirPrefersCompleteBackendOverPlaceholder(t *te
 	}
 }
 
+func TestPreferredMLBackendInstallDirFindsBundledResourceDir(t *testing.T) {
+	root := t.TempDir()
+	resourceBackendDir := filepath.Join(root, "ml-backend")
+	if err := os.MkdirAll(resourceBackendDir, 0o755); err != nil {
+		t.Fatalf("mkdir bundled backend dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(resourceBackendDir, "service.py"), []byte("print('ok')\n"), 0o644); err != nil {
+		t.Fatalf("write bundled service.py: %v", err)
+	}
+
+	if got := preferredMLBackendInstallDir([]string{root}); got != resourceBackendDir {
+		t.Fatalf("expected bundled resource dir %q, got %q", resourceBackendDir, got)
+	}
+}
+
 func TestCheckMLBackendReportsMissingFasterWhisperDependency(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/capabilities" {

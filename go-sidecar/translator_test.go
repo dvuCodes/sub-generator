@@ -461,9 +461,9 @@ func TestTranslateBlocksEndToEnd(t *testing.T) {
 
 func TestTranslateBlocksFallbackOnParseError(t *testing.T) {
 	server := mockLlamaServer(t, []string{
-		"garbled nonsense",    // first attempt for block 0 → parse fail
-		"still garbled",       // retry for block 0 → parse fail again
-		"Good morning",        // fallback: segment 0 individually
+		"garbled nonsense",     // first attempt for block 0 → parse fail
+		"still garbled",        // retry for block 0 → parse fail again
+		"Good morning",         // fallback: segment 0 individually
 		"Tanaka, good morning", // fallback: segment 1 individually
 	})
 	defer server.Close()
@@ -715,6 +715,40 @@ func TestTranslateSegmentsUsesStitching(t *testing.T) {
 	// Should have been one block → one LLM call (not 2)
 	if callCount != 1 {
 		t.Errorf("expected 1 LLM call (stitched block), got %d", callCount)
+	}
+}
+
+func TestTranslateSegmentsPreservesSpeakerMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := chatCompletionResponse{
+			Choices: []struct {
+				Message chatMessage `json:"message"`
+			}{
+				{Message: chatMessage{Role: "assistant", Content: "[1] Hello there"}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	translator := &Translator{baseURL: server.URL, client: server.Client(), maxWorkers: 1}
+	segments := []Segment{
+		{Start: 0.0, End: 1.0, Text: "a", SpeakerID: "speaker-1", SpeakerLabel: "Speaker 1"},
+	}
+
+	result, err := translator.TranslateSegments(segments, "ja", "en", nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(result))
+	}
+	if result[0].SpeakerID != "speaker-1" {
+		t.Fatalf("SpeakerID = %q, want %q", result[0].SpeakerID, "speaker-1")
+	}
+	if result[0].SpeakerLabel != "Speaker 1" {
+		t.Fatalf("SpeakerLabel = %q, want %q", result[0].SpeakerLabel, "Speaker 1")
 	}
 }
 
