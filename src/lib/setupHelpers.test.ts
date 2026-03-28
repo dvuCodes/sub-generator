@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   findPromptableInstallAction,
+  isServiceReady,
   shouldDisableGenerate,
   formatSetupIssue,
 } from "./setupHelpers";
@@ -167,5 +168,17 @@ describe("findPromptableInstallAction", () => {
     ]);
 
     expect(findPromptableInstallAction(status)).toBeNull();
+  });
+});
+
+describe("isServiceReady", () => {
+  it("returns true when a service is ready", () => {
+    const status = makeStatus([{ id: "llama", state: "ready" }]);
+    expect(isServiceReady(status, "llama")).toBe(true);
+  });
+
+  it("returns false when a service has setup issues", () => {
+    const status = makeStatus([{ id: "llama", state: "action_required" }]);
+    expect(isServiceReady(status, "llama")).toBe(false);
   });
 });

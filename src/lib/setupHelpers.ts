@@ -59,6 +59,17 @@ export function formatSetupIssue(issue: ServiceIssue): string {
   }
 }
 
+export function isServiceReady(
+  setupStatus: SetupStatusResponse | null,
+  serviceId: string
+): boolean {
+  if (!setupStatus) return false;
+
+  return setupStatus.services.some(
+    (service) => service.id === serviceId && service.state === "ready"
+  );
+}
+
 export function findPromptableInstallAction(
   setupStatus: SetupStatusResponse | null
 ): ServiceAction | null {

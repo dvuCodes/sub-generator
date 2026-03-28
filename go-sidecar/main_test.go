@@ -44,6 +44,90 @@ func TestListCapabilitiesUsesNewDefaults(t *testing.T) {
 	}
 }
 
+func TestMergeCapabilitiesPreservesLocalBackendAvailability(t *testing.T) {
+	base := defaultCapabilities()
+	for i := range base.Backends.ASR {
+		if base.Backends.ASR[i].ID == "whisper_cpp" {
+			base.Backends.ASR[i].Installed = true
+			base.Backends.ASR[i].DefaultModelID = "turbo"
+		}
+	}
+	for i := range base.Backends.Translation {
+		if base.Backends.Translation[i].ID == gemmaTranslationBackend {
+			base.Backends.Translation[i].Installed = true
+			base.Backends.Translation[i].DefaultModelID = gemmaModelFilenameConst
+		}
+	}
+
+	remote := &CapabilitiesResponse{
+		Type: "capabilities",
+		Defaults: BackendDefaults{
+			ASRBackend:         defaultASRBackend,
+			ASRModelID:         defaultASRModelID,
+			TranslationBackend: defaultTranslationBackend,
+			DiarizationEnabled: false,
+		},
+		Backends: BackendCapabilities{
+			ASR: []ASRBackendCapability{
+				{
+					ID:              defaultASRBackend,
+					DisplayName:     "Faster Whisper",
+					Installed:       true,
+					DefaultModelID:  defaultASRModelID,
+					SourceLanguages: []LanguageOption{{Code: "auto", Name: "Auto-detect"}},
+				},
+				{
+					ID:              "whisper_cpp",
+					DisplayName:     "whisper.cpp",
+					Installed:       false,
+					DefaultModelID:  "",
+					SourceLanguages: []LanguageOption{{Code: "auto", Name: "Auto-detect"}},
+				},
+			},
+			Translation: []TranslationBackendCapability{
+				{
+					ID:              defaultTranslationBackend,
+					DisplayName:     "NLLB",
+					Installed:       true,
+					DefaultModelID:  defaultTranslationModelID,
+					TargetLanguages: []LanguageOption{{Code: "en", Name: "English"}},
+				},
+				{
+					ID:              gemmaTranslationBackend,
+					DisplayName:     "Gemma Context",
+					Installed:       false,
+					DefaultModelID:  "",
+					TargetLanguages: []LanguageOption{{Code: "en", Name: "English"}},
+				},
+			},
+		},
+	}
+
+	mergeCapabilities(&base, remote)
+
+	for _, backend := range base.Backends.ASR {
+		if backend.ID == "whisper_cpp" {
+			if !backend.Installed {
+				t.Fatal("expected whisper_cpp to remain installed when local probe succeeded")
+			}
+			if backend.DefaultModelID != "turbo" {
+				t.Fatalf("expected whisper_cpp default model to be preserved, got %q", backend.DefaultModelID)
+			}
+		}
+	}
+
+	for _, backend := range base.Backends.Translation {
+		if backend.ID == gemmaTranslationBackend {
+			if !backend.Installed {
+				t.Fatal("expected gemma_context to remain installed when local probe succeeded")
+			}
+			if backend.DefaultModelID != gemmaModelFilenameConst {
+				t.Fatalf("expected gemma default model to be preserved, got %q", backend.DefaultModelID)
+			}
+		}
+	}
+}
+
 func TestLocalServiceBaseURLUsesIPv4Loopback(t *testing.T) {
 	if got := localServiceBaseURL(5000); got != "http://127.0.0.1:5000" {
 		t.Fatalf("localServiceBaseURL() = %q, want %q", got, "http://127.0.0.1:5000")

@@ -19,6 +19,8 @@ var supportedVideoExts = map[string]bool{
 	".m4v":  true,
 }
 
+const maxSubtitleSegmentDurationSeconds = 20.0
+
 type Pipeline struct {
 	svcManager      *ServiceManager
 	cleanupServices func()
@@ -357,14 +359,21 @@ func (p *Pipeline) transcribe(cmd Command, backend, modelID, transcribePath stri
 		)
 	default:
 		client := NewMLBackendClient(p.svcManager.MLBackendURL())
-		result, err := client.Transcribe(transcribePath, cmd.SourceLang, modelID, cmd.BeamSize, cmd.VADFilter)
-		if err != nil {
-			return nil, err
-		}
-		if err := validateTranscriptionResult(result); err != nil {
-			return nil, err
-		}
-		return result, nil
+		return transcribeWithValidationFallback(
+			transcribePath,
+			cmd.InputVideo,
+			func(path string) (*TranscriptionResult, error) {
+				return client.Transcribe(path, cmd.SourceLang, modelID, cmd.BeamSize, cmd.VADFilter)
+			},
+			func(reason string) {
+				fmt.Fprintf(
+					os.Stderr,
+					"warning: enhanced audio transcription returned unusable subtitle timings, retrying original input: %s\n",
+					reason,
+				)
+				sendStage("transcribing", "Enhanced audio produced unusable subtitle timings, retrying original audio...")
+			},
+		)
 	}
 }
 
@@ -450,7 +459,7 @@ func validateTranscriptionResult(result *TranscriptionResult) error {
 		var firstInvalid Segment
 
 		for i, segment := range result.Segments {
-			if segment.Start >= 0 && segment.End > segment.Start {
+			if segmentIsSubtitleSafe(segment) {
 				usable = append(usable, segment)
 				continue
 			}
@@ -466,10 +475,11 @@ func validateTranscriptionResult(result *TranscriptionResult) error {
 		}
 
 		return fmt.Errorf(
-			"whisper-server returned unusable segment timing data for every segment (first invalid segment %d start=%.3f end=%.3f), so subtitle timing could not be generated",
+			"whisper-server returned unusable subtitle timings for every segment (first invalid segment %d start=%.3f end=%.3f duration=%.3fs), so subtitle timing could not be generated",
 			firstInvalidIndex+1,
 			firstInvalid.Start,
 			firstInvalid.End,
+			firstInvalid.End-firstInvalid.Start,
 		)
 	}
 
@@ -478,6 +488,14 @@ func validateTranscriptionResult(result *TranscriptionResult) error {
 	}
 
 	return fmt.Errorf("no speech was detected in the input video, so there are no subtitle segments to write")
+}
+
+func segmentIsSubtitleSafe(segment Segment) bool {
+	if segment.Start < 0 || segment.End <= segment.Start {
+		return false
+	}
+
+	return segment.End-segment.Start <= maxSubtitleSegmentDurationSeconds
 }
 
 func transcribeWithValidationFallback(

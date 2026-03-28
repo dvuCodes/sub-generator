@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestMLBackendClientCapabilities(t *testing.T) {
@@ -47,6 +48,14 @@ func TestMLBackendClientCapabilities(t *testing.T) {
 	}
 	if len(got.Backends.ASR) != 1 || got.Backends.ASR[0].ID != "faster_whisper" {
 		t.Fatalf("unexpected ASR backends: %#v", got.Backends.ASR)
+	}
+}
+
+func TestMLBackendClientUsesExtendedRequestTimeout(t *testing.T) {
+	client := NewMLBackendClient("http://127.0.0.1:8082")
+
+	if client.client.Timeout < 30*time.Minute {
+		t.Fatalf("client timeout = %s, want at least 30m", client.client.Timeout)
 	}
 }
 

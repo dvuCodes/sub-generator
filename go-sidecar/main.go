@@ -249,7 +249,7 @@ func mergeCapabilities(base *CapabilitiesResponse, remote *CapabilitiesResponse)
 		replaced := false
 		for i := range base.Backends.ASR {
 			if base.Backends.ASR[i].ID == remoteASR.ID {
-				base.Backends.ASR[i] = remoteASR
+				base.Backends.ASR[i] = mergeASRCapability(base.Backends.ASR[i], remoteASR)
 				replaced = true
 				break
 			}
@@ -263,7 +263,7 @@ func mergeCapabilities(base *CapabilitiesResponse, remote *CapabilitiesResponse)
 		replaced := false
 		for i := range base.Backends.Translation {
 			if base.Backends.Translation[i].ID == remoteTranslation.ID {
-				base.Backends.Translation[i] = remoteTranslation
+				base.Backends.Translation[i] = mergeTranslationCapability(base.Backends.Translation[i], remoteTranslation)
 				replaced = true
 				break
 			}
@@ -272,6 +272,36 @@ func mergeCapabilities(base *CapabilitiesResponse, remote *CapabilitiesResponse)
 			base.Backends.Translation = append(base.Backends.Translation, remoteTranslation)
 		}
 	}
+}
+
+func mergeASRCapability(base ASRBackendCapability, remote ASRBackendCapability) ASRBackendCapability {
+	merged := base
+	if remote.DisplayName != "" {
+		merged.DisplayName = remote.DisplayName
+	}
+	merged.Installed = base.Installed || remote.Installed
+	if remote.DefaultModelID != "" {
+		merged.DefaultModelID = remote.DefaultModelID
+	}
+	if len(remote.SourceLanguages) > 0 {
+		merged.SourceLanguages = remote.SourceLanguages
+	}
+	return merged
+}
+
+func mergeTranslationCapability(base TranslationBackendCapability, remote TranslationBackendCapability) TranslationBackendCapability {
+	merged := base
+	if remote.DisplayName != "" {
+		merged.DisplayName = remote.DisplayName
+	}
+	merged.Installed = base.Installed || remote.Installed
+	if remote.DefaultModelID != "" {
+		merged.DefaultModelID = remote.DefaultModelID
+	}
+	if len(remote.TargetLanguages) > 0 {
+		merged.TargetLanguages = remote.TargetLanguages
+	}
+	return merged
 }
 
 func sendJSON(v any) {

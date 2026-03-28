@@ -269,15 +269,15 @@ func llamaDownloadActions(hasGPU bool, installDir string) []Action {
 func mlBackendDownloadActions(installDir string) []Action {
 	return []Action{
 		{
-			ID:              "ml-backend/install_python_dependencies",
-			Kind:            "command",
-			Label:           "Install Python dependencies",
-			Description:     "Install missing ML backend Python packages automatically.",
-			Guidance:        "SubGen will run python -m pip install -r requirements.txt using the ML backend runtime after you confirm.",
-			InstallDir:      installDir,
-			Preferred:       true,
-			ServiceID:       "ml-backend",
-			Command:         "install_ml_backend_requirements",
+			ID:          "ml-backend/install_python_dependencies",
+			Kind:        "command",
+			Label:       "Install Python dependencies",
+			Description: "Install missing ML backend Python packages automatically.",
+			Guidance:    "SubGen will run python -m pip install -r requirements.txt using the ML backend runtime after you confirm.",
+			InstallDir:  installDir,
+			Preferred:   true,
+			ServiceID:   "ml-backend",
+			Command:     "install_ml_backend_requirements",
 		},
 		{
 			ID:              "ml-backend/install_bundle",
@@ -376,7 +376,18 @@ func checkMLBackend(config ServiceConfig, registry *ActionRegistry, actions []Ac
 	scriptPath := resolveMLBackendScriptPath(config.SearchRoots)
 	pythonPath := resolveMLBackendPython(config.SearchRoots)
 	if fileExists(launcherPath) || (scriptPath != "" && validateCommandAvailability(pythonPath, "python") == nil) {
-		if capabilities, err := mlBackendCapabilitiesForSetup(config); err == nil && !mlBackendASRInstalled(capabilities) {
+		capabilities, err := mlBackendCapabilitiesForSetup(config)
+		if err != nil {
+			return serviceStatusWithActions(
+				"ml-backend",
+				"ml-backend",
+				"transcription",
+				ServiceIssue{Code: "binary_not_runnable", ObservedError: err.Error()},
+				registry,
+				actions,
+			)
+		}
+		if !mlBackendASRInstalled(capabilities) {
 			return serviceStatusWithActions(
 				"ml-backend",
 				"ml-backend",
