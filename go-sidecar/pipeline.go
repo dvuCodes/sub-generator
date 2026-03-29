@@ -136,27 +136,7 @@ func (p *Pipeline) Run(cmd Command) {
 		return
 	}
 
-	// Step 4: Preprocess audio (if enabled)
-	transcribePath := cmd.InputVideo
-	audioConfig := cmd.AudioConfig
-	if audioConfig == nil {
-		ac := DefaultAudioConfig()
-		audioConfig = &ac
-	}
-
-	if audioConfig.Enabled {
-		sendStage("preprocessing", "Enhancing audio for transcription...")
-		preprocessedPath, preprocessErr := PreprocessAudio(cmd.InputVideo, *audioConfig)
-		if preprocessErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: audio preprocessing failed, falling back to raw upload: %v\n", preprocessErr)
-			sendStage("preprocessing", "Audio enhancement skipped, using original audio")
-		} else {
-			transcribePath = preprocessedPath
-			defer cleanupPreprocessed(preprocessedPath)
-		}
-	}
-
-	// Step 5: Transcribe
+	// Step 4: Transcribe
 	sendStage("transcribing", "Transcribing speech...")
 
 	mediaDuration, probeErr := MediaDuration(cmd.InputVideo)
@@ -212,7 +192,7 @@ func (p *Pipeline) Run(cmd Command) {
 		}
 	}()
 
-	result, err := p.transcribe(cmd, selectedASRBackend, selectedASRModelID, transcribePath)
+	result, err := p.transcribe(cmd, selectedASRBackend, selectedASRModelID)
 	close(done)
 
 	if err != nil {
@@ -228,7 +208,7 @@ func (p *Pipeline) Run(cmd Command) {
 
 	if diarizationRequested {
 		sendStage("diarizing", "Labeling speakers...")
-		annotatedSegments, count, annotateErr := p.annotateDiarization(transcribePath, segments)
+		annotatedSegments, count, annotateErr := p.annotateDiarization(cmd.InputVideo, segments)
 		if annotateErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: diarization failed, continuing without speaker labels: %v\n", annotateErr)
 			sendStage("diarizing", "Speaker labeling unavailable, continuing without speaker labels")
@@ -343,14 +323,12 @@ func (p *Pipeline) validateInput(path string) error {
 	return nil
 }
 
-func (p *Pipeline) transcribe(cmd Command, backend, modelID, transcribePath string) (*TranscriptionResult, error) {
+func (p *Pipeline) transcribe(cmd Command, backend, modelID string) (*TranscriptionResult, error) {
 	switch backend {
 	case "whisper_cpp":
 		transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
 		return transcribeWithOptionalVADRetry(
 			cmd,
-			transcribePath,
-			cmd.InputVideo,
 			func(path string, vadFilter bool) (*TranscriptionResult, error) {
 				return transcriber.Transcribe(
 					path,
@@ -358,14 +336,6 @@ func (p *Pipeline) transcribe(cmd Command, backend, modelID, transcribePath stri
 					cmd.BeamSize,
 					vadFilter,
 				)
-			},
-			func(reason string) {
-				fmt.Fprintf(
-					os.Stderr,
-					"warning: enhanced audio transcription returned no usable subtitle segments, retrying original input: %s\n",
-					reason,
-				)
-				sendStage("transcribing", "Enhanced audio produced no usable transcript, retrying original audio...")
 			},
 			func(reason string) {
 				fmt.Fprintf(
@@ -380,18 +350,8 @@ func (p *Pipeline) transcribe(cmd Command, backend, modelID, transcribePath stri
 		client := NewMLBackendClient(p.svcManager.MLBackendURL())
 		return transcribeWithOptionalVADRetry(
 			cmd,
-			transcribePath,
-			cmd.InputVideo,
 			func(path string, vadFilter bool) (*TranscriptionResult, error) {
 				return client.Transcribe(path, cmd.SourceLang, modelID, cmd.BeamSize, vadFilter)
-			},
-			func(reason string) {
-				fmt.Fprintf(
-					os.Stderr,
-					"warning: enhanced audio transcription returned unusable subtitle timings, retrying original input: %s\n",
-					reason,
-				)
-				sendStage("transcribing", "Enhanced audio produced unusable subtitle timings, retrying original audio...")
 			},
 			func(reason string) {
 				fmt.Fprintf(
@@ -540,48 +500,6 @@ func segmentIsSubtitleSafe(segment Segment) bool {
 	return segment.End-segment.Start <= maxSubtitleSegmentDurationSeconds
 }
 
-func transcribeWithValidationFallback(
-	primaryPath string,
-	rawPath string,
-	transcribe transcribeAttempt,
-	onFallback func(reason string),
-) (*TranscriptionResult, error) {
-	result, _, err := transcribeWithValidationFallbackDetailed(
-		primaryPath,
-		rawPath,
-		transcribe,
-		onFallback,
-	)
-	return result, err
-}
-
-func transcribeWithValidationFallbackDetailed(
-	primaryPath string,
-	rawPath string,
-	transcribe transcribeAttempt,
-	onFallback func(reason string),
-) (*TranscriptionResult, transcriptionValidation, error) {
-	result, summary, err := transcribeValidated(primaryPath, transcribe)
-	if err == nil {
-		return result, summary, nil
-	}
-
-	if primaryPath == "" || rawPath == "" || primaryPath == rawPath {
-		return nil, summary, err
-	}
-
-	if onFallback != nil {
-		onFallback(err.Error())
-	}
-
-	result, summary, err = transcribeValidated(rawPath, transcribe)
-	if err != nil {
-		return nil, summary, err
-	}
-
-	return result, summary, nil
-}
-
 func transcribeValidated(
 	path string,
 	transcribe transcribeAttempt,
@@ -627,19 +545,14 @@ func tryValidatedRetry(
 
 func transcribeWithOptionalVADRetry(
 	cmd Command,
-	primaryPath string,
-	rawPath string,
 	transcribe func(path string, vadFilter bool) (*TranscriptionResult, error),
-	onInputFallback func(reason string),
 	onVADRetry func(reason string),
 ) (*TranscriptionResult, error) {
-	result, summary, err := transcribeWithValidationFallbackDetailed(
-		primaryPath,
-		rawPath,
+	result, summary, err := transcribeValidated(
+		cmd.InputVideo,
 		func(path string) (*TranscriptionResult, error) {
 			return transcribe(path, cmd.VADFilter)
 		},
-		onInputFallback,
 	)
 	if err != nil {
 		return nil, err
@@ -660,27 +573,14 @@ func transcribeWithOptionalVADRetry(
 	}
 
 	if retryResult, retrySummary, retryErr := tryValidatedRetry(
-		primaryPath,
+		cmd.InputVideo,
 		func(path string) (*TranscriptionResult, error) {
 			return transcribe(path, false)
 		},
 	); retryErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: VAD-disabled retry on enhanced input failed, keeping current transcription: %v\n", retryErr)
+		fmt.Fprintf(os.Stderr, "warning: VAD-disabled retry on original input failed, keeping current transcription: %v\n", retryErr)
 	} else {
 		result, summary = considerRetryCandidate(result, summary, retryResult, retrySummary)
-	}
-
-	if primaryPath != "" && rawPath != "" && primaryPath != rawPath {
-		if retryResult, retrySummary, retryErr := tryValidatedRetry(
-			rawPath,
-			func(path string) (*TranscriptionResult, error) {
-				return transcribe(path, false)
-			},
-		); retryErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: VAD-disabled retry on original input failed, keeping current transcription: %v\n", retryErr)
-		} else {
-			result, summary = considerRetryCandidate(result, summary, retryResult, retrySummary)
-		}
 	}
 
 	return result, nil

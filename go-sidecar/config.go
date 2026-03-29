@@ -22,27 +22,10 @@ type Command struct {
 	DiarizationEnabled bool         `json:"diarization_enabled,omitempty"`
 	BeamSize           int          `json:"beam_size,omitempty"`
 	VADFilter          bool         `json:"vad_filter,omitempty"`
-	AudioConfig        *AudioConfig `json:"audio_config,omitempty"`
 	ActionID           string       `json:"action_id,omitempty"`
 	// install_language fields
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
-}
-
-type AudioConfig struct {
-	Enabled      bool    `json:"enabled"`
-	VocalBoostDB float64 `json:"vocal_boost_db"`
-	NoiseGate    bool    `json:"noise_gate"`
-	Normalize    bool    `json:"normalize"`
-}
-
-func DefaultAudioConfig() AudioConfig {
-	return AudioConfig{
-		Enabled:      true,
-		VocalBoostDB: 3,
-		NoiseGate:    true,
-		Normalize:    true,
-	}
 }
 
 // --- IPC Response Types (sent to Tauri via stdout) ---

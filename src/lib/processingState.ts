@@ -4,7 +4,6 @@ const STAGE_ORDER = [
   "validating",
   "downloading_model",
   "starting_services",
-  "preprocessing",
   "transcribing",
   "diarizing",
   "translating",
