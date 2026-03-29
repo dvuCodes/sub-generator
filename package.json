@@ -1,7 +1,23 @@
 {
-  "name": "subgen-scaffold",
-  "private": true,
-  "version": "0.0.0",
+  "name": "subgen",
+  "version": "0.1.0",
+  "description": "Local-first desktop subtitle generation with Tauri, React, Go, and a Python ML backend.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dvuCodes/sub-generator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dvuCodes/sub-generator/issues"
+  },
+  "homepage": "https://github.com/dvuCodes/sub-generator",
+  "keywords": [
+    "subtitles",
+    "tauri",
+    "desktop",
+    "transcription",
+    "faster-whisper"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +25,7 @@
     "tauri:dev": "bunx tauri dev",
     "tauri:build": "bunx tauri build",
     "lint": "eslint .",
+    "test": "bun test",
     "preview": "vite preview"
   },
   "dependencies": {

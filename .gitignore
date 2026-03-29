@@ -33,6 +33,10 @@ go-sidecar/*.exe
 
 # Superpowers local state
 .superpowers/
+.claude/
+.codex/
+AGENTS.md
+docs/superpowers/
 
 # Temp audio files
 src-tauri/*.wav
@@ -47,7 +51,7 @@ venv/
 *.ggml
 *.gguf
 python-backend/models/
-services/ml-backend/models/
+services/ml-backend/
 
 # IDE
 .vscode/*
@@ -65,7 +69,13 @@ Thumbs.db
 
 # Environment
 .env
+.env.*
 .env.local
+!.env.example
+
+# Generated staging and local bundles
+tmp-whisper/
+src-tauri/subgen-sidecar-*
 
 # Logs
 logs/

@@ -1,121 +1,165 @@
 # SubGen
 
-SubGen is a local desktop subtitle generator built with Tauri. The app uses a React frontend, a Rust Tauri host, and a Go sidecar that coordinates transcription with `whisper-server`, optional translation with GemmaTranslate-v3 via `llama-server`, and subtitle file output in `srt`, `ass`, or `vtt`.
+SubGen is a local-first desktop app for generating subtitle files from video and audio on your own machine. It pairs a React interface with a Tauri desktop shell, a Go orchestration sidecar, and a Python ML backend for transcription, translation, and optional speaker diarization.
 
-## Stack
+SubGen currently targets source builds first. The repository is structured to help contributors run the app locally, inspect the pipeline, and improve subtitle reliability without depending on a hosted service.
 
-- React 19 + TypeScript + Vite
-- Tailwind CSS v4
-- Tauri v2 with Rust
-- Go sidecar
+## Why SubGen
+
+- Local-first workflow for sensitive media and iterative subtitle work
+- Desktop UI for running transcription and translation without wiring together multiple CLIs
+- Mixed-runtime architecture that keeps the UI responsive while heavy ML work runs in dedicated services
+- Source-available pipeline that is practical to debug and extend
+
+## Current Architecture
+
+### Default runtime path
+
+- React 19 + TypeScript + Vite frontend
+- Tauri v2 + Rust desktop host
+- Go sidecar for job orchestration, setup checks, and subtitle output
+- Python ML backend for:
+  - Faster Whisper ASR
+  - NLLB translation
+  - pyannote speaker diarization
+
+The Python backend downloads default model artifacts on demand into `python-backend/models/`. You can override the cache location with `SUBGEN_ML_CACHE`.
+
+### Optional manual backends
+
+The repo still contains compatibility paths for:
+
 - `whisper-server` from `whisper.cpp`
-- `llama-server` from `llama.cpp` (GemmaTranslate-v3 for translation)
+- `llama-server` from `llama.cpp` for Gemma-based translation
+
+Those are optional/manual backends, not the primary open-source quickstart path.
 
 ## Repository Layout
 
 ```text
-src/                React UI and sidecar IPC client
-src-tauri/          Tauri host, capabilities, and desktop config
-go-sidecar/         Go pipeline, service management, and subtitle writing
-services/           Setup notes for whisper-server and llama-server
+src/                React UI and client-side state
+src-tauri/          Tauri host, capabilities, packaging config
+go-sidecar/         Go orchestration pipeline and subtitle writer
+python-backend/     Canonical Python ML backend
+services/           Optional local service/model staging roots
 public/             Static frontend assets
 ```
 
 ## Prerequisites
 
 - Bun 1.3+
-- Rust + Cargo (`rustup` will pick the pinned `1.88.0` toolchain from `rust-toolchain.toml`)
-- Go 1.26.1 on `PATH` in the active shell that runs `bunx tauri dev`
-- `whisper-server` available either:
-  - on `PATH`, or
-  - under `services/whisper-server/`
-- `llama-server` available either:
-  - on `PATH`, or
-  - under `services/llama-server/`
-  - The GemmaTranslate-v3 GGUF model (~7 GB) downloads automatically on first translation request
+- Rust 1.88.0+ via `rustup`
+- Go 1.26.1 on `PATH`
+- A Python 3 runtime on `PATH` for the ML backend
 
-The Go sidecar now checks the documented `services/whisper-server/` layout before falling back to plain `whisper-server` on `PATH`.
+Recommended:
 
-## whisper-server Setup
+- FFmpeg on `PATH` for video transcription workflows
+- CUDA-capable environment if you want GPU acceleration
 
-Place the server binary and models like this if you want the repo-local layout:
+Optional:
 
-```text
-services/whisper-server/
-  whisper-server.exe
-  models/
-    ggml-base.bin
-    ggml-small.bin
-    ggml-medium.bin
-    ggml-large-v3.bin
-    ggml-large-v3-turbo.bin
-```
+- `HF_TOKEN` if your Hugging Face setup requires authentication for model downloads
+- `SUBGEN_ML_CACHE` if you want model downloads outside the repo working tree
 
-`model_size` in the UI maps to these filenames:
+## Quickstart
 
-- `tiny` -> `ggml-tiny.bin`
-- `base` -> `ggml-base.bin`
-- `small` -> `ggml-small.bin`
-- `medium` -> `ggml-medium.bin`
-- `large-v3` -> `ggml-large-v3.bin`
-- `turbo` -> `ggml-large-v3-turbo.bin`
-
-## Development
-
-Install frontend dependencies:
+1. Install frontend dependencies:
 
 ```bash
 bun install
 ```
 
-Run the frontend only:
+2. Install Python backend dependencies into the Python runtime SubGen will use:
+
+```bash
+python -m pip install -r python-backend/requirements.txt
+```
+
+3. Start the desktop app:
+
+```bash
+bun run tauri:dev
+```
+
+SubGen will use the Python backend by default and download the default Faster Whisper / NLLB / diarization assets when those features are first needed.
+
+## Development Commands
+
+Frontend only:
 
 ```bash
 bun run dev
 ```
 
-Run the desktop app:
+Desktop app:
 
 ```bash
-bunx tauri dev
+bun run tauri:dev
 ```
 
-Build the frontend bundle:
+Frontend production build:
 
 ```bash
 bun run build
 ```
 
-Build the desktop app:
+Desktop production build:
 
 ```bash
-bunx tauri build
+bun run tauri:build
 ```
 
-## Checks
+## Verification
 
 Frontend:
 
 ```bash
 bun run lint
+bun run test
 bun run build
 ```
 
 Go sidecar:
 
 ```bash
+cd go-sidecar
 go test ./...
+```
+
+Python backend:
+
+```bash
+python -m unittest discover -s python-backend -p "test_*.py"
 ```
 
 Rust host:
 
 ```bash
+cd src-tauri
 cargo check
 ```
 
-## Runtime Flow
+## Technical Notes
 
-1. React connects to the Tauri host.
-2. Tauri spawns the bundled Go sidecar.
-3. The sidecar starts `whisper-server` for transcription, then `llama-server` (GemmaTranslate-v3) for translation as needed.
-4. The sidecar transcribes the original input media, optionally translates the timed segments, and writes the subtitle file next to the input video unless an explicit output path is provided.
+- Default ASR model: `deepdml/faster-whisper-large-v3-turbo-ct2`
+- Default translation model: `JustFrederik/nllb-200-distilled-600M-ct2-int8`
+- Default diarization model: `pyannote/speaker-diarization-community-1`
+- Subtitle output formats: `srt`, `ass`, `vtt`
+- The Go sidecar owns service lifecycle, setup checks, dependency installation guidance, and output writing
+
+## Project Status
+
+SubGen is an active work-in-progress focused on subtitle reliability, long-form transcription correctness, and a smoother local setup story.
+
+What this repo is ready for:
+
+- building from source
+- inspecting and contributing to the pipeline
+- testing local-first transcription and translation workflows
+
+What is still evolving:
+
+- packaged distribution and release assets
+- smoother first-run dependency setup
+- broader contributor documentation beyond the core quickstart
