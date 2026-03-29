@@ -17,10 +17,7 @@
     },
     "shell:allow-stdin-write",
     "shell:allow-kill",
-    {
-      "identifier": "shell:allow-open",
-      "allow": [{ "url": "file:///*" }]
-    },
+    "shell:allow-open",
     "dialog:allow-open",
     "dialog:allow-confirm"
   ]
