@@ -118,4 +118,4 @@ cargo check
 1. React connects to the Tauri host.
 2. Tauri spawns the bundled Go sidecar.
 3. The sidecar starts `whisper-server` for transcription, then `llama-server` (GemmaTranslate-v3) for translation as needed.
-4. The sidecar transcribes, optionally translates, and writes the subtitle file next to the input video unless an explicit output path is provided.
+4. The sidecar transcribes the original input media, optionally translates the timed segments, and writes the subtitle file next to the input video unless an explicit output path is provided.

@@ -195,24 +195,7 @@ func TestDefaultServiceConfig(t *testing.T) {
 	}
 }
 
-func TestAudioConfig_Defaults(t *testing.T) {
-	cfg := DefaultAudioConfig()
-
-	if !cfg.Enabled {
-		t.Error("expected Enabled to be true")
-	}
-	if cfg.VocalBoostDB != 3 {
-		t.Errorf("expected VocalBoostDB=3, got %g", cfg.VocalBoostDB)
-	}
-	if !cfg.NoiseGate {
-		t.Error("expected NoiseGate to be true")
-	}
-	if !cfg.Normalize {
-		t.Error("expected Normalize to be true")
-	}
-}
-
-func TestAudioConfig_Deserialize(t *testing.T) {
+func TestGenerateCommandIgnoresLegacyAudioConfig(t *testing.T) {
 	input := `{
 		"command": "generate",
 		"input_video": "test.mkv",
@@ -232,33 +215,14 @@ func TestAudioConfig_Deserialize(t *testing.T) {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	if !cmd.AudioConfig.Enabled {
-		t.Error("expected AudioConfig.Enabled=true")
+	if cmd.Command != "generate" {
+		t.Errorf("Command = %q, want generate", cmd.Command)
 	}
-	if cmd.AudioConfig.VocalBoostDB != 4 {
-		t.Errorf("expected VocalBoostDB=4, got %g", cmd.AudioConfig.VocalBoostDB)
+	if cmd.InputVideo != "test.mkv" {
+		t.Errorf("InputVideo = %q, want test.mkv", cmd.InputVideo)
 	}
-	if cmd.AudioConfig.NoiseGate {
-		t.Error("expected AudioConfig.NoiseGate=false")
-	}
-	if !cmd.AudioConfig.Normalize {
-		t.Error("expected AudioConfig.Normalize=true")
-	}
-}
-
-func TestAudioConfig_DeserializeMissing(t *testing.T) {
-	input := `{
-		"command": "generate",
-		"input_video": "test.mkv"
-	}`
-
-	var cmd Command
-	if err := json.Unmarshal([]byte(input), &cmd); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
-	}
-
-	if cmd.AudioConfig != nil {
-		t.Error("expected AudioConfig to be nil when missing from JSON")
+	if !cmd.VADFilter {
+		t.Error("expected VADFilter to remain true")
 	}
 }
 

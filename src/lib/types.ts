@@ -10,13 +10,6 @@ export type OutputFormat = "srt" | "ass" | "vtt";
 export type ASRBackend = "faster_whisper" | "whisper_cpp";
 export type TranslationBackend = "nllb" | "gemma_context" | "none";
 
-export interface AudioConfig {
-  enabled: boolean;
-  vocal_boost_db: number;
-  noise_gate: boolean;
-  normalize: boolean;
-}
-
 export interface GenerateCommand {
   command: "generate";
   input_video: string;
@@ -31,7 +24,6 @@ export interface GenerateCommand {
   diarization_enabled: boolean;
   beam_size: number;
   vad_filter: boolean;
-  audio_config: AudioConfig;
 }
 
 export interface ListLanguagesCommand {
