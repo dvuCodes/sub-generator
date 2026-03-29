@@ -280,7 +280,6 @@ def resolve_model_reference(model_id: str, cache_root: Path) -> str:
     return snapshot_download(
         repo_id=model_id,
         local_dir=str(local_dir),
-        local_dir_use_symlinks=False,
         token=os.environ.get("HF_TOKEN"),
     )
 
