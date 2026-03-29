@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 )
@@ -187,11 +190,64 @@ func TestVramInfoResponseNilVram(t *testing.T) {
 func TestDefaultServiceConfig(t *testing.T) {
 	config := DefaultServiceConfig()
 
-	if config.WhisperPort != 8080 {
-		t.Errorf("WhisperPort = %d, want 8080", config.WhisperPort)
+	if config.WhisperPort <= 0 {
+		t.Errorf("WhisperPort = %d, want a positive port", config.WhisperPort)
 	}
-	if config.LlamaServerPort != 8081 {
-		t.Errorf("LlamaServerPort = %d, want 8081", config.LlamaServerPort)
+	if config.LlamaServerPort <= 0 {
+		t.Errorf("LlamaServerPort = %d, want a positive port", config.LlamaServerPort)
+	}
+	if config.MLBackendPort <= 0 {
+		t.Errorf("MLBackendPort = %d, want a positive port", config.MLBackendPort)
+	}
+	if config.WhisperPort == config.LlamaServerPort ||
+		config.WhisperPort == config.MLBackendPort ||
+		config.LlamaServerPort == config.MLBackendPort {
+		t.Fatalf("expected distinct managed service ports, got %+v", config)
+	}
+}
+
+func TestResolveServiceConfigAvoidsOccupiedDefaultPorts(t *testing.T) {
+	listeners := make([]net.Listener, 0, 3)
+	occupied := make(map[int]struct{}, 3)
+	for _, port := range []string{"8080", "8081", "8082"} {
+		listener, err := net.Listen("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			var addrErr *net.OpError
+			if !strings.Contains(err.Error(), "Only one usage of each socket address") &&
+				!strings.Contains(strings.ToLower(err.Error()), "address already in use") &&
+				!errors.As(err, &addrErr) {
+				t.Fatalf("listen on %s: %v", port, err)
+			}
+		} else {
+			listeners = append(listeners, listener)
+		}
+		portNum := 0
+		if _, scanErr := fmt.Sscanf(port, "%d", &portNum); scanErr != nil {
+			t.Fatalf("parse port %s: %v", port, scanErr)
+		}
+		occupied[portNum] = struct{}{}
+	}
+	defer func() {
+		for _, listener := range listeners {
+			_ = listener.Close()
+		}
+	}()
+
+	config := resolveServiceConfig(t.TempDir())
+
+	if _, found := occupied[config.WhisperPort]; found {
+		t.Fatalf("WhisperPort = %d, want a non-conflicting port", config.WhisperPort)
+	}
+	if _, found := occupied[config.LlamaServerPort]; found {
+		t.Fatalf("LlamaServerPort = %d, want a non-conflicting port", config.LlamaServerPort)
+	}
+	if _, found := occupied[config.MLBackendPort]; found {
+		t.Fatalf("MLBackendPort = %d, want a non-conflicting port", config.MLBackendPort)
+	}
+	if config.WhisperPort == config.LlamaServerPort ||
+		config.WhisperPort == config.MLBackendPort ||
+		config.LlamaServerPort == config.MLBackendPort {
+		t.Fatalf("expected distinct managed service ports, got %+v", config)
 	}
 }
 

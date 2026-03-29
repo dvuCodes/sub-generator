@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -219,6 +220,9 @@ func (sm *ServiceManager) StartMLBackend() error {
 	sm.mu.Unlock()
 
 	healthy := sm.IsMLBackendRunning()
+	if err := rejectUnmanagedListeningService("ml-backend", sm.config.MLBackendPort, currentProcess, healthy); err != nil {
+		return err
+	}
 	if currentProcess == nil && healthy {
 		return nil
 	}
@@ -403,6 +407,28 @@ func rejectUnmanagedHealthyService(serviceName string, port int, currentProcess 
 		port,
 		serviceName,
 	)
+}
+
+func rejectUnmanagedListeningService(serviceName string, port int, currentProcess *os.Process, healthy bool) error {
+	if currentProcess != nil || healthy || !isPortListening(port) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%s is already listening on port %d but is not managed by SubGen. Startup was aborted to avoid conflicting with another local service; stop the existing process using port %d and retry",
+		serviceName,
+		port,
+		port,
+	)
+}
+
+func isPortListening(port int) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", loopbackHost, port), 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func validateWhisperStartup(searchRoots []string, binaryPath, modelPath string) error {
