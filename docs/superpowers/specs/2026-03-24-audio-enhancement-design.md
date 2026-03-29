@@ -1,5 +1,7 @@
 # Audio Enhancement for Improved Transcription Accuracy
 
+> Superseded on 2026-03-29. Audio enhancement has been removed from the active SubGen pipeline because it was not a proven subtitle-quality win. Keep this spec only as historical design context.
+
 **Date:** 2026-03-24
 **Status:** Approved
 **Branch:** TBD (new feature branch)

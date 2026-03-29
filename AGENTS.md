@@ -34,10 +34,9 @@
 - The bundled `whisper-server` returns subtitle-ready timestamps only with `response_format=verbose_json`; parse current `segments[].start`/`end` values as seconds, and keep legacy `t0`/`t1` millisecond parsing only as a fallback.
 - If `whisper-server` returns zero segments, fail in the pipeline with explicit no-speech / missing-timestamps guidance before the subtitle writer runs; do not surface `astisub: no subtitles to write` directly.
 - If `whisper-server` returns a mix of usable and unusable segment timings, drop only the unusable segments and continue; fail only when no subtitle-safe timed segments remain.
-- Treat ASR segments longer than subtitle-safe bounds (currently 20s) as unusable timings; if enhanced audio produced them, retry once on the original input instead of translating the hallucinated span.
+- Treat ASR segments longer than subtitle-safe bounds (currently 20s) as unusable timings; retry once on the original input with `vad_filter=false` instead of translating the hallucinated span.
 - If Faster Whisper returns pathological overlong VAD segments (for example, a single segment spanning a large stretch of runtime), retry transcription once with `vad_filter=false` before accepting the filtered result; otherwise validation can silently drop most of the tail while leaving only a few short segments.
-- When comparing transcription retries, do not accept a retry that materially regresses the last kept subtitle timestamp just because it has more short segments; if enhanced audio stays subtitle-safe but still under-covers the tail, also probe the original input with `vad_filter=false` before settling on the result.
-- If enhanced audio preprocessing yields VAD activity but Whisper still returns no usable transcript segments, retry transcription once on the original input before surfacing a no-speech / missing-timestamps error.
+- When comparing transcription retries, do not accept a retry that materially regresses the last kept subtitle timestamp just because it has more short segments; prefer the candidate that preserves or improves tail coverage on the original input.
 - The Go sidecar pipeline must stop managed `whisper-server` / `llama-server` processes on every terminal path itself; do not rely on the frontend to send `stop_services` after `complete` or `error`, or VRAM can remain allocated if that round-trip is missed.
 - For this desktop-only Tauri app, avoid `staticlib` in `src-tauri/Cargo.toml`; it produces a massive `app_lib.lib` on Windows and can fail rebuilds with archive rename access errors.
 - If Windows dev builds lock `subgen.pdb`, disable dev debug info in `src-tauri/Cargo.toml` (`[profile.dev] debug = 0`) rather than fighting repeated PDB replace failures.
@@ -45,6 +44,7 @@
 - `tsconfig.app.json` excludes `src/**/*.test.ts` but not `src/**/*.test.tsx`; keep Bun/JSX regression tests on the excluded pattern or update the exclude list before relying on `.test.tsx`.
 - Always mark tasks off when complete.
 - After every correction to assumptions/process, update this `AGENTS.md`.
+- Track every substantial feature, bug, investigation, or reliability task in Linear under the `SubGen` project on team `Rio31`; add or link the issue before major work starts, and post progress plus verification notes to the issue before closing it.
 - For loopback `whisper-server` HTTP calls, stage multipart uploads in a temp file and send them as fixed-length request bodies; `io.Pipe` streaming uploads can still fail with `use of closed network connection` on real transcription files even when a small probe file succeeds.
 - Treat `list_languages` as static capability metadata only; do not use it as proof that the translation engine is installed or running.
 - When testing streamed Go HTTP request bodies, do not rely on `ContentLength`; assert the streaming mechanism itself (for example `io.PipeReader`) or read behavior instead.

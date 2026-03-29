@@ -30,7 +30,6 @@ export function useVramPolling({
 
   useEffect(() => {
     if (!enabled) {
-      setVram(null);
       awaitingResponseRef.current = false;
       return;
     }
@@ -55,5 +54,5 @@ export function useVramPolling({
     setVram(vramData);
   }, []);
 
-  return { vram, handleVramResponse };
+  return { vram: enabled ? vram : null, handleVramResponse };
 }

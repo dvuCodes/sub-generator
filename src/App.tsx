@@ -40,7 +40,6 @@ import {
 } from "./lib/installState";
 import type {
   ASRBackend,
-  AudioConfig,
   CapabilitiesResponse,
   GenerateCommand,
   ModelSize,
@@ -81,12 +80,6 @@ function App() {
   const [format, setFormat] = useState<OutputFormat>("srt");
   const [beamSize, setBeamSize] = useState(5);
   const [vadFilter, setVadFilter] = useState(true);
-  const [audioConfig, setAudioConfig] = useState<AudioConfig>({
-    enabled: true,
-    vocal_boost_db: 3,
-    noise_gate: true,
-    normalize: true,
-  });
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [asrBackend, setAsrBackend] = useState<ASRBackend>("faster_whisper");
   const [asrModelId, setAsrModelId] = useState("");
@@ -378,7 +371,6 @@ function App() {
         diarization_enabled: diarizationEnabled,
         beam_size: beamSize,
         vad_filter: vadFilter,
-        audio_config: audioConfig,
       };
       await sendCommand(command);
     } catch (err) {
@@ -386,7 +378,6 @@ function App() {
       setAppState("error");
     }
   }, [
-    audioConfig,
     beamSize,
     connected,
     diarizationEnabled,
@@ -703,10 +694,8 @@ function App() {
             <SettingsPanel
               beamSize={beamSize}
               vadFilter={vadFilter}
-              audioConfig={audioConfig}
               onBeamSizeChange={setBeamSize}
               onVadFilterChange={setVadFilter}
-              onAudioConfigChange={setAudioConfig}
               disabled={isProcessing}
             />
 

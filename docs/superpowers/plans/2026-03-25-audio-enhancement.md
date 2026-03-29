@@ -1,5 +1,7 @@
 # Audio Enhancement Implementation Plan
 
+> Superseded on 2026-03-29. Audio enhancement has been removed from the active SubGen pipeline because it was not a proven subtitle-quality win. Keep this document only as historical implementation context.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add FFmpeg audio preprocessing and Whisper temperature fallback to improve transcription accuracy for anime/TV/movie content.
