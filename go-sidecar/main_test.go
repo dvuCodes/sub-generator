@@ -1,8 +1,12 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -168,6 +172,64 @@ func TestBuildCapabilitiesMarksGemmaInstalledWhenLlamaBinaryExists(t *testing.T)
 	backend := findTranslationBackendByID(t, capabilities, gemmaTranslationBackend)
 	if !backend.Installed {
 		t.Fatal("expected gemma_context to stay selectable when llama-server is installed and the model can be downloaded on demand")
+	}
+}
+
+func TestBuildCapabilitiesUsesHealthyExistingMLBackend(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+			return
+		case "/capabilities":
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(CapabilitiesResponse{
+			Type: "capabilities",
+			Defaults: BackendDefaults{
+				ASRBackend:         defaultASRBackend,
+				ASRModelID:         defaultASRModelID,
+				TranslationBackend: defaultTranslationBackend,
+				DiarizationEnabled: false,
+			},
+			Backends: BackendCapabilities{
+				ASR: []ASRBackendCapability{
+					{
+						ID:             defaultASRBackend,
+						DisplayName:    "Faster Whisper",
+						Installed:      true,
+						DefaultModelID: defaultASRModelID,
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	pythonBackendDir := filepath.Join(root, "python-backend")
+	if err := os.MkdirAll(pythonBackendDir, 0o755); err != nil {
+		t.Fatalf("mkdir python-backend: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pythonBackendDir, "service.py"), []byte("print('ok')\n"), 0o644); err != nil {
+		t.Fatalf("write service.py: %v", err)
+	}
+
+	port, err := strconv.Atoi(server.URL[len("http://127.0.0.1:"):])
+	if err != nil {
+		t.Fatalf("parse test server port: %v", err)
+	}
+
+	capabilities := buildCapabilitiesResponse(NewServiceManager(ServiceConfig{
+		SearchRoots:   []string{root},
+		MLBackendPort: port,
+	}))
+	backend := findASRBackendByID(t, capabilities, defaultASRBackend)
+	if !backend.Installed {
+		t.Fatal("expected healthy existing ml-backend capabilities to keep faster_whisper selectable")
 	}
 }
 

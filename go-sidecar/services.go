@@ -219,8 +219,8 @@ func (sm *ServiceManager) StartMLBackend() error {
 	sm.mu.Unlock()
 
 	healthy := sm.IsMLBackendRunning()
-	if err := rejectUnmanagedHealthyService("ml-backend", sm.config.MLBackendPort, currentProcess, healthy); err != nil {
-		return err
+	if currentProcess == nil && healthy {
+		return nil
 	}
 	if currentProcess != nil && healthy {
 		return nil
@@ -256,7 +256,7 @@ func (sm *ServiceManager) StopMLBackend() {
 	defer sm.mu.Unlock()
 
 	if sm.mlBackendProcess != nil {
-		_ = sm.mlBackendProcess.Kill()
+		_ = terminateManagedProcess(sm.mlBackendProcess)
 		_, _ = sm.mlBackendProcess.Wait()
 		sm.mlBackendProcess = nil
 	}
@@ -355,12 +355,12 @@ func buildLlamaCommand(binaryPath, modelPath string, port int) *exec.Cmd {
 }
 
 func buildMLBackendCommand(launcherPath, pythonPath, scriptPath string, port int) (*exec.Cmd, error) {
-	if fileExists(launcherPath) {
-		cmd := exec.Command(launcherPath, "--host", loopbackHost, "--port", fmt.Sprintf("%d", port))
-		cmd.Dir = filepath.Dir(launcherPath)
-		return cmd, nil
-	}
 	if scriptPath == "" {
+		if fileExists(launcherPath) {
+			cmd := exec.Command(launcherPath, "--host", loopbackHost, "--port", fmt.Sprintf("%d", port))
+			cmd.Dir = filepath.Dir(launcherPath)
+			return cmd, nil
+		}
 		return nil, fmt.Errorf("ml-backend service.py missing")
 	}
 
@@ -376,6 +376,16 @@ func fileExists(path string) bool {
 	}
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func terminateManagedProcess(process *os.Process) error {
+	if process == nil {
+		return nil
+	}
+	if os.PathSeparator == '\\' {
+		return exec.Command("taskkill", "/T", "/F", "/PID", fmt.Sprintf("%d", process.Pid)).Run()
+	}
+	return process.Kill()
 }
 
 func shouldReuseManagedLlamaProcess(currentProcess *os.Process, currentModel string, expectedModel string, healthy bool) bool {

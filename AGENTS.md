@@ -9,6 +9,7 @@
 - When changes are required:
   - propose a short plan (2-6 bullets), then execute.
 - Always check for relevant skills before building.
+- For JavaScript/TypeScript package management in this repo, use Bun whenever it is applicable; prefer `bun install`, `bun run`, `bun test`, and `bunx` over `npm`, `npx`, `yarn`, or `pnpm` unless a tool explicitly requires a different package manager.
 - Run project git commands from `C:\Users\datvu\projects\sub-generator`; do not use the parent `C:\Users\datvu\projects` repo for this project.
 - Run Go commands and tests from `C:\Users\datvu\projects\sub-generator\go-sidecar`; it is a nested Go module and `go test ./...` will not resolve correctly from the repo root.
 - If `rg.exe` is blocked in PowerShell, use `Select-String` and `Get-ChildItem` as the repository search fallback.
@@ -27,13 +28,15 @@
 - If backend language discovery is unavailable at startup, preserve the built-in language selector options and surface the translation setup issue as a non-fatal warning instead of blocking the transcription UI.
 - Keep source transcription languages on the built-in Whisper list even when discovered translation pairs are sparse; only narrow translation targets to the backend-reported coverage.
 - In the frontend, do not auto-switch the selected ASR or translation backend just because capabilities say it needs setup; preserve the current choice unless that backend is absent entirely, so slow capability probes do not flip the UI to source-only or whisper.cpp.
+- For the completion-state `Open Folder` action, pass the native directory path to `@tauri-apps/plugin-shell` `open()`; do not convert local folders into `file://` URLs or Windows Explorer can fail to open them.
 - When the UI leaves source language on auto-detect, still send `language=auto` to `whisper-server`; omitting the field lets the bundled server default to English and can mis-transcribe foreign speech.
 - For video transcription, start `whisper-server` with `--convert` and validate `ffmpeg` first; otherwise the server can reject `.mp4`/video uploads with a generic `400 Invalid request`.
 - The bundled `whisper-server` returns subtitle-ready timestamps only with `response_format=verbose_json`; parse current `segments[].start`/`end` values as seconds, and keep legacy `t0`/`t1` millisecond parsing only as a fallback.
 - If `whisper-server` returns zero segments, fail in the pipeline with explicit no-speech / missing-timestamps guidance before the subtitle writer runs; do not surface `astisub: no subtitles to write` directly.
 - If `whisper-server` returns a mix of usable and unusable segment timings, drop only the unusable segments and continue; fail only when no subtitle-safe timed segments remain.
-- Treat ASR segments longer than subtitle-safe bounds (currently 20s) as unusable timings; if enhanced audio produced them, retry once on the original input instead of translating the hallucinated span.
-- If enhanced audio preprocessing yields VAD activity but Whisper still returns no usable transcript segments, retry transcription once on the original input before surfacing a no-speech / missing-timestamps error.
+- Treat ASR segments longer than subtitle-safe bounds (currently 20s) as unusable timings; retry once on the original input with `vad_filter=false` instead of translating the hallucinated span.
+- If Faster Whisper returns pathological overlong VAD segments (for example, a single segment spanning a large stretch of runtime), retry transcription once with `vad_filter=false` before accepting the filtered result; otherwise validation can silently drop most of the tail while leaving only a few short segments.
+- When comparing transcription retries, do not accept a retry that materially regresses the last kept subtitle timestamp just because it has more short segments; prefer the candidate that preserves or improves tail coverage on the original input.
 - The Go sidecar pipeline must stop managed `whisper-server` / `llama-server` processes on every terminal path itself; do not rely on the frontend to send `stop_services` after `complete` or `error`, or VRAM can remain allocated if that round-trip is missed.
 - For this desktop-only Tauri app, avoid `staticlib` in `src-tauri/Cargo.toml`; it produces a massive `app_lib.lib` on Windows and can fail rebuilds with archive rename access errors.
 - If Windows dev builds lock `subgen.pdb`, disable dev debug info in `src-tauri/Cargo.toml` (`[profile.dev] debug = 0`) rather than fighting repeated PDB replace failures.
@@ -41,6 +44,7 @@
 - `tsconfig.app.json` excludes `src/**/*.test.ts` but not `src/**/*.test.tsx`; keep Bun/JSX regression tests on the excluded pattern or update the exclude list before relying on `.test.tsx`.
 - Always mark tasks off when complete.
 - After every correction to assumptions/process, update this `AGENTS.md`.
+- Track every substantial feature, bug, investigation, or reliability task in Linear under the `SubGen` project on team `Rio31`; add or link the issue before major work starts, and post progress plus verification notes to the issue before closing it.
 - For loopback `whisper-server` HTTP calls, stage multipart uploads in a temp file and send them as fixed-length request bodies; `io.Pipe` streaming uploads can still fail with `use of closed network connection` on real transcription files even when a small probe file succeeds.
 - Treat `list_languages` as static capability metadata only; do not use it as proof that the translation engine is installed or running.
 - When testing streamed Go HTTP request bodies, do not rely on `ContentLength`; assert the streaming mechanism itself (for example `io.PipeReader`) or read behavior instead.

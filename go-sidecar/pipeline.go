@@ -20,6 +20,8 @@ var supportedVideoExts = map[string]bool{
 }
 
 const maxSubtitleSegmentDurationSeconds = 20.0
+const overlongSegmentVADRetryThresholdSeconds = 60.0
+const retryCoverageRegressionToleranceSeconds = 5.0
 
 type Pipeline struct {
 	svcManager      *ServiceManager
@@ -27,6 +29,14 @@ type Pipeline struct {
 }
 
 type transcribeAttempt func(path string) (*TranscriptionResult, error)
+
+type transcriptionValidation struct {
+	KeptSegments          int
+	DroppedSegments       int
+	LongestDroppedSeconds float64
+	LastKeptEnd           float64
+	UsableDuration        float64
+}
 
 func NewPipeline(svcManager *ServiceManager) *Pipeline {
 	return &Pipeline{
@@ -126,27 +136,7 @@ func (p *Pipeline) Run(cmd Command) {
 		return
 	}
 
-	// Step 4: Preprocess audio (if enabled)
-	transcribePath := cmd.InputVideo
-	audioConfig := cmd.AudioConfig
-	if audioConfig == nil {
-		ac := DefaultAudioConfig()
-		audioConfig = &ac
-	}
-
-	if audioConfig.Enabled {
-		sendStage("preprocessing", "Enhancing audio for transcription...")
-		preprocessedPath, preprocessErr := PreprocessAudio(cmd.InputVideo, *audioConfig)
-		if preprocessErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: audio preprocessing failed, falling back to raw upload: %v\n", preprocessErr)
-			sendStage("preprocessing", "Audio enhancement skipped, using original audio")
-		} else {
-			transcribePath = preprocessedPath
-			defer cleanupPreprocessed(preprocessedPath)
-		}
-	}
-
-	// Step 5: Transcribe
+	// Step 4: Transcribe
 	sendStage("transcribing", "Transcribing speech...")
 
 	mediaDuration, probeErr := MediaDuration(cmd.InputVideo)
@@ -202,7 +192,7 @@ func (p *Pipeline) Run(cmd Command) {
 		}
 	}()
 
-	result, err := p.transcribe(cmd, selectedASRBackend, selectedASRModelID, transcribePath)
+	result, err := p.transcribe(cmd, selectedASRBackend, selectedASRModelID)
 	close(done)
 
 	if err != nil {
@@ -218,7 +208,7 @@ func (p *Pipeline) Run(cmd Command) {
 
 	if diarizationRequested {
 		sendStage("diarizing", "Labeling speakers...")
-		annotatedSegments, count, annotateErr := p.annotateDiarization(transcribePath, segments)
+		annotatedSegments, count, annotateErr := p.annotateDiarization(cmd.InputVideo, segments)
 		if annotateErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: diarization failed, continuing without speaker labels: %v\n", annotateErr)
 			sendStage("diarizing", "Speaker labeling unavailable, continuing without speaker labels")
@@ -333,45 +323,43 @@ func (p *Pipeline) validateInput(path string) error {
 	return nil
 }
 
-func (p *Pipeline) transcribe(cmd Command, backend, modelID, transcribePath string) (*TranscriptionResult, error) {
+func (p *Pipeline) transcribe(cmd Command, backend, modelID string) (*TranscriptionResult, error) {
 	switch backend {
 	case "whisper_cpp":
 		transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
-		return transcribeWithValidationFallback(
-			transcribePath,
-			cmd.InputVideo,
-			func(path string) (*TranscriptionResult, error) {
+		return transcribeWithOptionalVADRetry(
+			cmd,
+			func(path string, vadFilter bool) (*TranscriptionResult, error) {
 				return transcriber.Transcribe(
 					path,
 					cmd.SourceLang,
 					cmd.BeamSize,
-					cmd.VADFilter,
+					vadFilter,
 				)
 			},
 			func(reason string) {
 				fmt.Fprintf(
 					os.Stderr,
-					"warning: enhanced audio transcription returned no usable subtitle segments, retrying original input: %s\n",
+					"warning: transcription returned oversized VAD segments, retrying without VAD: %s\n",
 					reason,
 				)
-				sendStage("transcribing", "Enhanced audio produced no usable transcript, retrying original audio...")
+				sendStage("transcribing", "Collapsed VAD segments detected, retrying without VAD...")
 			},
 		)
 	default:
 		client := NewMLBackendClient(p.svcManager.MLBackendURL())
-		return transcribeWithValidationFallback(
-			transcribePath,
-			cmd.InputVideo,
-			func(path string) (*TranscriptionResult, error) {
-				return client.Transcribe(path, cmd.SourceLang, modelID, cmd.BeamSize, cmd.VADFilter)
+		return transcribeWithOptionalVADRetry(
+			cmd,
+			func(path string, vadFilter bool) (*TranscriptionResult, error) {
+				return client.Transcribe(path, cmd.SourceLang, modelID, cmd.BeamSize, vadFilter)
 			},
 			func(reason string) {
 				fmt.Fprintf(
 					os.Stderr,
-					"warning: enhanced audio transcription returned unusable subtitle timings, retrying original input: %s\n",
+					"warning: transcription returned oversized VAD segments, retrying without VAD: %s\n",
 					reason,
 				)
-				sendStage("transcribing", "Enhanced audio produced unusable subtitle timings, retrying original audio...")
+				sendStage("transcribing", "Collapsed VAD segments detected, retrying without VAD...")
 			},
 		)
 	}
@@ -449,8 +437,15 @@ func supportedExtsList() string {
 }
 
 func validateTranscriptionResult(result *TranscriptionResult) error {
+	_, err := validateTranscriptionResultDetailed(result)
+	return err
+}
+
+func validateTranscriptionResultDetailed(result *TranscriptionResult) (transcriptionValidation, error) {
+	var summary transcriptionValidation
+
 	if result == nil {
-		return fmt.Errorf("whisper-server returned no transcription result")
+		return summary, fmt.Errorf("whisper-server returned no transcription result")
 	}
 
 	if len(result.Segments) > 0 {
@@ -461,7 +456,14 @@ func validateTranscriptionResult(result *TranscriptionResult) error {
 		for i, segment := range result.Segments {
 			if segmentIsSubtitleSafe(segment) {
 				usable = append(usable, segment)
+				summary.KeptSegments++
+				summary.LastKeptEnd = segment.End
+				summary.UsableDuration += segment.End - segment.Start
 				continue
+			}
+			summary.DroppedSegments++
+			if duration := segment.End - segment.Start; duration > summary.LongestDroppedSeconds {
+				summary.LongestDroppedSeconds = duration
 			}
 			if firstInvalidIndex == -1 {
 				firstInvalidIndex = i
@@ -471,10 +473,10 @@ func validateTranscriptionResult(result *TranscriptionResult) error {
 
 		if len(usable) > 0 {
 			result.Segments = usable
-			return nil
+			return summary, nil
 		}
 
-		return fmt.Errorf(
+		return summary, fmt.Errorf(
 			"whisper-server returned unusable subtitle timings for every segment (first invalid segment %d start=%.3f end=%.3f duration=%.3fs), so subtitle timing could not be generated",
 			firstInvalidIndex+1,
 			firstInvalid.Start,
@@ -484,10 +486,10 @@ func validateTranscriptionResult(result *TranscriptionResult) error {
 	}
 
 	if strings.TrimSpace(result.Text) != "" {
-		return fmt.Errorf("whisper-server returned transcript text but no timestamped segments, so subtitle timing could not be generated")
+		return summary, fmt.Errorf("whisper-server returned transcript text but no timestamped segments, so subtitle timing could not be generated")
 	}
 
-	return fmt.Errorf("no speech was detected in the input video, so there are no subtitle segments to write")
+	return summary, fmt.Errorf("no speech was detected in the input video, so there are no subtitle segments to write")
 }
 
 func segmentIsSubtitleSafe(segment Segment) bool {
@@ -498,35 +500,105 @@ func segmentIsSubtitleSafe(segment Segment) bool {
 	return segment.End-segment.Start <= maxSubtitleSegmentDurationSeconds
 }
 
-func transcribeWithValidationFallback(
-	primaryPath string,
-	rawPath string,
+func transcribeValidated(
+	path string,
 	transcribe transcribeAttempt,
-	onFallback func(reason string),
+) (*TranscriptionResult, transcriptionValidation, error) {
+	var summary transcriptionValidation
+
+	result, err := transcribe(path)
+	if err != nil {
+		return nil, summary, err
+	}
+
+	detailed, err := validateTranscriptionResultDetailed(result)
+	if err != nil {
+		return nil, detailed, err
+	}
+
+	return result, detailed, nil
+}
+
+func considerRetryCandidate(
+	currentResult *TranscriptionResult,
+	currentSummary transcriptionValidation,
+	candidateResult *TranscriptionResult,
+	candidateSummary transcriptionValidation,
+) (*TranscriptionResult, transcriptionValidation) {
+	if !retryImprovesTranscription(candidateSummary, currentSummary) {
+		return currentResult, currentSummary
+	}
+
+	return candidateResult, candidateSummary
+}
+
+func tryValidatedRetry(
+	path string,
+	transcribe transcribeAttempt,
+) (*TranscriptionResult, transcriptionValidation, error) {
+	if path == "" {
+		return nil, transcriptionValidation{}, fmt.Errorf("empty retry path")
+	}
+
+	return transcribeValidated(path, transcribe)
+}
+
+func transcribeWithOptionalVADRetry(
+	cmd Command,
+	transcribe func(path string, vadFilter bool) (*TranscriptionResult, error),
+	onVADRetry func(reason string),
 ) (*TranscriptionResult, error) {
-	result, err := transcribe(primaryPath)
+	result, summary, err := transcribeValidated(
+		cmd.InputVideo,
+		func(path string) (*TranscriptionResult, error) {
+			return transcribe(path, cmd.VADFilter)
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := validateTranscriptionResult(result); err == nil {
+	if !shouldRetryWithoutVAD(cmd, summary) {
 		return result, nil
-	} else if primaryPath == "" || rawPath == "" || primaryPath == rawPath {
-		return nil, err
+	}
+
+	if onVADRetry != nil {
+		onVADRetry(
+			fmt.Sprintf(
+				"dropped %d oversized segment(s), longest %.3fs",
+				summary.DroppedSegments,
+				summary.LongestDroppedSeconds,
+			),
+		)
+	}
+
+	if retryResult, retrySummary, retryErr := tryValidatedRetry(
+		cmd.InputVideo,
+		func(path string) (*TranscriptionResult, error) {
+			return transcribe(path, false)
+		},
+	); retryErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: VAD-disabled retry on original input failed, keeping current transcription: %v\n", retryErr)
 	} else {
-		if onFallback != nil {
-			onFallback(err.Error())
-		}
-	}
-
-	result, err = transcribe(rawPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := validateTranscriptionResult(result); err != nil {
-		return nil, err
+		result, summary = considerRetryCandidate(result, summary, retryResult, retrySummary)
 	}
 
 	return result, nil
+}
+
+func shouldRetryWithoutVAD(cmd Command, summary transcriptionValidation) bool {
+	return cmd.VADFilter && summary.LongestDroppedSeconds >= overlongSegmentVADRetryThresholdSeconds
+}
+
+func retryImprovesTranscription(candidate transcriptionValidation, baseline transcriptionValidation) bool {
+	if candidate.LastKeptEnd > baseline.LastKeptEnd+1 {
+		return true
+	}
+	if candidate.LastKeptEnd+retryCoverageRegressionToleranceSeconds < baseline.LastKeptEnd {
+		return false
+	}
+	if candidate.UsableDuration > baseline.UsableDuration+1 {
+		return true
+	}
+	return candidate.KeptSegments > baseline.KeptSegments
 }
