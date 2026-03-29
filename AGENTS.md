@@ -29,6 +29,7 @@
 - Keep source transcription languages on the built-in Whisper list even when discovered translation pairs are sparse; only narrow translation targets to the backend-reported coverage.
 - In the frontend, do not auto-switch the selected ASR or translation backend just because capabilities say it needs setup; preserve the current choice unless that backend is absent entirely, so slow capability probes do not flip the UI to source-only or whisper.cpp.
 - For the completion-state `Open Folder` action, pass the native directory path to `@tauri-apps/plugin-shell` `open()`; do not convert local folders into `file://` URLs or Windows Explorer can fail to open them.
+- For the completion-state `Open Folder` action in Tauri v2, frontend native-path fixes are not sufficient by themselves; keep `src-tauri/tauri.conf.json` `plugins.shell.open` enabled for local opens and prefer a plain `"shell:allow-open"` capability over a `file:///*`-scoped workaround.
 - When the UI leaves source language on auto-detect, still send `language=auto` to `whisper-server`; omitting the field lets the bundled server default to English and can mis-transcribe foreign speech.
 - For video transcription, start `whisper-server` with `--convert` and validate `ffmpeg` first; otherwise the server can reject `.mp4`/video uploads with a generic `400 Invalid request`.
 - The bundled `whisper-server` returns subtitle-ready timestamps only with `response_format=verbose_json`; parse current `segments[].start`/`end` values as seconds, and keep legacy `t0`/`t1` millisecond parsing only as a fallback.
