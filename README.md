@@ -1,6 +1,21 @@
 # SubGen
 
-SubGen is a local desktop subtitle generator built with Tauri. The app uses a React frontend, a Rust Tauri host, and a Go sidecar that coordinates transcription with `whisper-server`, optional translation with GemmaTranslate-v3 via `llama-server`, and subtitle file output in `srt`, `ass`, or `vtt`.
+SubGen is a local desktop subtitle generator built with Tauri. It pairs a React frontend with a Rust host and a Go sidecar to run local transcription with `whisper-server`, optional translation, and subtitle export in `srt`, `ass`, or `vtt`.
+
+This repository is meant for source installs. Large models, local service binaries, and generated runtime mirrors are intentionally excluded from version control.
+
+## What It Does
+
+- Transcribes local audio and video into subtitle-ready segments
+- Exports `srt`, `ass`, and `vtt`
+- Supports local translation workflows when `llama-server` and a translation model are available
+- Keeps the desktop flow local-first instead of sending media to a hosted SaaS
+
+## Current Status
+
+- Finished desktop application under active maintenance
+- Install and run from source
+- GitHub Releases are not the primary distribution channel yet
 
 ## Stack
 
@@ -11,34 +26,45 @@ SubGen is a local desktop subtitle generator built with Tauri. The app uses a Re
 - `whisper-server` from `whisper.cpp`
 - `llama-server` from `llama.cpp` (GemmaTranslate-v3 for translation)
 
-## Repository Layout
+## Install From Source
 
-```text
-src/                React UI and sidecar IPC client
-src-tauri/          Tauri host, capabilities, and desktop config
-go-sidecar/         Go pipeline, service management, and subtitle writing
-services/           Setup notes for whisper-server and llama-server
-public/             Static frontend assets
-```
-
-## Prerequisites
+### Prerequisites
 
 - Bun 1.3+
 - Rust + Cargo (`rustup` will pick the pinned `1.88.0` toolchain from `rust-toolchain.toml`)
-- Go 1.26.1 on `PATH` in the active shell that runs `bunx tauri dev`
+- Go 1.26.1 on `PATH` in the shell that runs `bunx tauri dev`
 - `whisper-server` available either:
   - on `PATH`, or
   - under `services/whisper-server/`
 - `llama-server` available either:
   - on `PATH`, or
   - under `services/llama-server/`
-  - The GemmaTranslate-v3 GGUF model (~7 GB) downloads automatically on first translation request
+  - The GemmaTranslate-v3 GGUF model downloads on first translation request
 
-The Go sidecar now checks the documented `services/whisper-server/` layout before falling back to plain `whisper-server` on `PATH`.
+### Setup
 
-## whisper-server Setup
+```bash
+bun install
+```
 
-Place the server binary and models like this if you want the repo-local layout:
+### Run
+
+```bash
+bunx tauri dev
+```
+
+### Build
+
+```bash
+bun run build
+bunx tauri build
+```
+
+## Local Dependencies
+
+The repo ignores downloaded binaries and models by design. If you want a repo-local layout instead of using tools already on `PATH`, place the assets here:
+
+### `whisper-server` layout
 
 ```text
 services/whisper-server/
@@ -51,7 +77,7 @@ services/whisper-server/
     ggml-large-v3-turbo.bin
 ```
 
-`model_size` in the UI maps to these filenames:
+`model_size` maps to these filenames:
 
 - `tiny` -> `ggml-tiny.bin`
 - `base` -> `ggml-base.bin`
@@ -60,57 +86,36 @@ services/whisper-server/
 - `large-v3` -> `ggml-large-v3.bin`
 - `turbo` -> `ggml-large-v3-turbo.bin`
 
-## Development
+## Development Checks
 
-Install frontend dependencies:
-
-```bash
-bun install
-```
-
-Run the frontend only:
-
-```bash
-bun run dev
-```
-
-Run the desktop app:
-
-```bash
-bunx tauri dev
-```
-
-Build the frontend bundle:
-
-```bash
-bun run build
-```
-
-Build the desktop app:
-
-```bash
-bunx tauri build
-```
-
-## Checks
-
-Frontend:
+- Frontend:
 
 ```bash
 bun run lint
 bun run build
 ```
 
-Go sidecar:
+- Go sidecar:
 
 ```bash
 go test ./...
 ```
 
-Rust host:
+- Rust host:
 
 ```bash
 cargo check
+```
+
+## Repository Layout
+
+```text
+src/                React UI and sidecar IPC client
+src-tauri/          Tauri host, capabilities, and desktop config
+go-sidecar/         Go pipeline, service management, and subtitle writing
+python-backend/     Canonical Python ML backend source
+services/           Local binaries, models, and generated runtime mirrors
+public/             Static frontend assets
 ```
 
 ## Runtime Flow

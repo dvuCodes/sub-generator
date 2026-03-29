@@ -14,9 +14,11 @@ go-sidecar/subgen-sidecar
 go-sidecar/subgen-sidecar.exe
 
 # Tauri sidecar binaries (built from go-sidecar)
+src-tauri/subgen-sidecar-*
 src-tauri/subgen-sidecar-*.exe
 
 # Services (binaries and models - download locally)
+services/ml-backend/
 services/whisper-server/*.exe
 services/whisper-server/*.dll
 services/whisper-server/*.bin
@@ -33,6 +35,10 @@ go-sidecar/*.exe
 
 # Superpowers local state
 .superpowers/
+.claude/
+.codex/
+docs/superpowers/
+AGENTS.md
 
 # Temp audio files
 src-tauri/*.wav

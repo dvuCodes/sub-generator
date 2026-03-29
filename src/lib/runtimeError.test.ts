@@ -33,7 +33,7 @@ describe("formatRuntimeError", () => {
   it("turns an ml-backend setup failure into actionable guidance", () => {
     const error = formatRuntimeError(
       "Service startup failed",
-      'ml-backend: ml-backend setup is incomplete: launcher or service.py missing under "C:\\Users\\datvu\\Documents\\code\\sub-generator\\services\\ml-backend"'
+      'ml-backend: ml-backend setup is incomplete: launcher or service.py missing under "C:\\workspace\\subgen\\services\\ml-backend"'
     );
 
     expect(error).toContain("Service startup failed:");

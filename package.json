@@ -1,7 +1,16 @@
 {
-  "name": "subgen-scaffold",
+  "name": "subgen",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "SubGen is a local desktop subtitle generator built with Tauri.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dvuCodes/sub-generator.git"
+  },
+  "homepage": "https://github.com/dvuCodes/sub-generator",
+  "bugs": {
+    "url": "https://github.com/dvuCodes/sub-generator/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
