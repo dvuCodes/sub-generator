@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,20 +11,20 @@ import (
 // --- IPC Command Types (received from Tauri via stdin) ---
 
 type Command struct {
-	Command            string       `json:"command"`
-	InputVideo         string       `json:"input_video,omitempty"`
-	SourceLang         *string      `json:"source_lang,omitempty"`
-	TargetLang         *string      `json:"target_lang,omitempty"`
-	OutputFormat       string       `json:"output_format,omitempty"`
-	OutputPath         *string      `json:"output_path,omitempty"`
-	ASRBackend         string       `json:"asr_backend,omitempty"`
-	ASRModelID         string       `json:"asr_model_id,omitempty"`
-	ModelSize          string       `json:"model_size,omitempty"`
-	TranslationBackend string       `json:"translation_backend,omitempty"`
-	DiarizationEnabled bool         `json:"diarization_enabled,omitempty"`
-	BeamSize           int          `json:"beam_size,omitempty"`
-	VADFilter          bool         `json:"vad_filter,omitempty"`
-	ActionID           string       `json:"action_id,omitempty"`
+	Command            string  `json:"command"`
+	InputVideo         string  `json:"input_video,omitempty"`
+	SourceLang         *string `json:"source_lang,omitempty"`
+	TargetLang         *string `json:"target_lang,omitempty"`
+	OutputFormat       string  `json:"output_format,omitempty"`
+	OutputPath         *string `json:"output_path,omitempty"`
+	ASRBackend         string  `json:"asr_backend,omitempty"`
+	ASRModelID         string  `json:"asr_model_id,omitempty"`
+	ModelSize          string  `json:"model_size,omitempty"`
+	TranslationBackend string  `json:"translation_backend,omitempty"`
+	DiarizationEnabled bool    `json:"diarization_enabled,omitempty"`
+	BeamSize           int     `json:"beam_size,omitempty"`
+	VADFilter          bool    `json:"vad_filter,omitempty"`
+	ActionID           string  `json:"action_id,omitempty"`
 	// install_language fields
 	Source string `json:"source,omitempty"`
 	Target string `json:"target,omitempty"`
@@ -179,15 +181,52 @@ func DefaultServiceConfig() ServiceConfig {
 func resolveServiceConfig(roots ...string) ServiceConfig {
 	searchRoots := normalizeSearchRoots(roots)
 	whisperBinary, whisperModel := resolveWhisperAssets(searchRoots, "base")
+	whisperPort, llamaPort, mlBackendPort := allocateManagedServicePorts()
 
 	return ServiceConfig{
 		SearchRoots:       searchRoots,
 		WhisperServerPath: whisperBinary,
 		WhisperModelPath:  whisperModel,
-		WhisperPort:       8080,
-		LlamaServerPort:   8081,
-		MLBackendPort:     8082,
+		WhisperPort:       whisperPort,
+		LlamaServerPort:   llamaPort,
+		MLBackendPort:     mlBackendPort,
 	}
+}
+
+func allocateManagedServicePorts() (int, int, int) {
+	const (
+		defaultWhisperPort = 8080
+		defaultLlamaPort   = 8081
+		defaultMLPort      = 8082
+	)
+
+	preferred := []int{defaultWhisperPort, defaultLlamaPort, defaultMLPort}
+	listeners := make([]net.Listener, 0, len(preferred))
+	ports := make([]int, 0, len(preferred))
+
+	for _, port := range preferred {
+		listener, err := reserveLoopbackListener(port)
+		if err != nil {
+			return defaultWhisperPort, defaultLlamaPort, defaultMLPort
+		}
+		listeners = append(listeners, listener)
+		ports = append(ports, listener.Addr().(*net.TCPAddr).Port)
+	}
+
+	for _, listener := range listeners {
+		_ = listener.Close()
+	}
+
+	return ports[0], ports[1], ports[2]
+}
+
+func reserveLoopbackListener(preferredPort int) (net.Listener, error) {
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", loopbackHost, preferredPort))
+	if err == nil {
+		return listener, nil
+	}
+
+	return net.Listen("tcp", fmt.Sprintf("%s:0", loopbackHost))
 }
 
 func resolveWhisperAssets(roots []string, modelSize string) (string, string) {

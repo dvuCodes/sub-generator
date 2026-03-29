@@ -49,6 +49,7 @@
 - Treat `list_languages` as static capability metadata only; do not use it as proof that the translation engine is installed or running.
 - When testing streamed Go HTTP request bodies, do not rely on `ContentLength`; assert the streaming mechanism itself (for example `io.PipeReader`) or read behavior instead.
 - Treat `python-backend/` as the canonical ML backend source tree and `services/ml-backend/` as a staged runtime mirror/cache root; do not maintain a second Python implementation under `services/ml-backend/`.
+- Managed sidecar services should not rely on fixed loopback ports staying free; if 8080-8082 are occupied, select open loopback ports for the current sidecar session so local tools or stale processes do not masquerade as dependency-install failures.
 - Keep the Python ML backend launcher scripts pointed at the staged root `service.py`; the build copies `python-backend/` as-is and does not wrap it under an extra `app/` directory.
 - Do not list the staged `src-tauri/resources/ml-backend` tree in `tauri.conf.json` for dev builds; Tauri will watch it and can loop forever if `build.rs` refreshes those files. Inject packaged ML-backend resources from `build.rs` only for non-debug builds.
 - Treat Faster Whisper CUDA DLL failures on Windows as both startup and runtime fallback cases; `cublas64_12.dll` issues can surface lazily during segment generation, so retry on CPU instead of only guarding model construction.
