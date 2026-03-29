@@ -227,11 +227,16 @@ func buildCapabilitiesResponse(svcManager *ServiceManager) CapabilitiesResponse 
 	if !fileExists(resolveMLBackendLauncher(svcManager.config.SearchRoots)) && resolveMLBackendScriptPath(svcManager.config.SearchRoots) == "" {
 		return capabilities
 	}
+	client := NewMLBackendClient(svcManager.MLBackendURL())
+	if remote, err := client.Capabilities(); err == nil {
+		mergeCapabilities(&capabilities, remote)
+		return capabilities
+	}
+
 	if err := svcManager.StartMLBackend(); err != nil {
 		return capabilities
 	}
 
-	client := NewMLBackendClient(svcManager.MLBackendURL())
 	remote, err := client.Capabilities()
 	if err != nil {
 		return capabilities
