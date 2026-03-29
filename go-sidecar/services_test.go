@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -113,6 +114,42 @@ func TestRejectUnmanagedHealthyServiceAllowsTrackedOrStoppedProcess(t *testing.T
 	process := &os.Process{Pid: 1234}
 	if err := rejectUnmanagedHealthyService("whisper-server", 8080, process, true); err != nil {
 		t.Fatalf("rejectUnmanagedHealthyService(process, true) error = %v, want nil", err)
+	}
+}
+
+func TestRejectUnmanagedListeningServiceRejectsRawListener(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	err = rejectUnmanagedListeningService("ml-backend", port, nil, false)
+	if err == nil {
+		t.Fatal("rejectUnmanagedListeningService() error = nil, want unmanaged listener conflict")
+	}
+
+	message := err.Error()
+	for _, fragment := range []string{
+		"ml-backend",
+		strconv.Itoa(port),
+		"already listening",
+		"not managed by SubGen",
+	} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("rejectUnmanagedListeningService() error %q missing %q", message, fragment)
+		}
 	}
 }
 
