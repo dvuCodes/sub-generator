@@ -38,6 +38,12 @@ type transcriptionValidation struct {
 	UsableDuration        float64
 }
 
+type preparedTranscriptionInput struct {
+	TranscriptionPath string
+	DiarizationPath   string
+	Cleanup           func()
+}
+
 func NewPipeline(svcManager *ServiceManager) *Pipeline {
 	return &Pipeline{
 		svcManager:      svcManager,
@@ -72,61 +78,9 @@ func (p *Pipeline) Run(cmd Command) {
 		return
 	}
 
-	installDir := preferredWhisperInstallDir(p.svcManager.config.SearchRoots)
-	if selectedASRBackend == "whisper_cpp" {
-		modelFile := modelFilename(cmd.ModelSize)
-		modelPath := filepath.Join(installDir, "models", modelFile)
-
-		if _, err := os.Stat(modelPath); err != nil {
-			if !os.IsNotExist(err) {
-				sendError("Model check failed", fmt.Sprintf("cannot access model at %q: %v", modelPath, err))
-				return
-			}
-			sendStage("downloading_model", fmt.Sprintf("Downloading %s model...", cmd.ModelSize))
-			url := ModelDownloadURL(cmd.ModelSize)
-			if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
-				sendError("Model download failed", err.Error())
-				return
-			}
-			if err := DownloadModel(url, modelPath, func(downloaded, total int64) {
-				if total > 0 {
-					pct := float64(downloaded) / float64(total) * 100
-					sendProgress("downloading_model", pct, fmt.Sprintf("Downloading %s / %s", formatBytes(downloaded), formatBytes(total)))
-				} else {
-					sendProgress("downloading_model", 0, fmt.Sprintf("Downloading %s...", formatBytes(downloaded)))
-				}
-			}); err != nil {
-				sendError("Model download failed", err.Error())
-				return
-			}
-			sendProgress("downloading_model", 100, "Model downloaded")
-		}
-
-		if cmd.VADFilter {
-			vadModelPath := filepath.Join(installDir, "models", vadModelFilename)
-			if _, err := os.Stat(vadModelPath); err != nil && !os.IsNotExist(err) {
-				sendError("VAD model check failed", fmt.Sprintf("cannot access VAD model at %q: %v", vadModelPath, err))
-				return
-			} else if os.IsNotExist(err) {
-				sendStage("downloading_model", "Downloading VAD model...")
-				if err := os.MkdirAll(filepath.Dir(vadModelPath), 0o755); err != nil {
-					sendError("VAD model download failed", err.Error())
-					return
-				}
-				if err := DownloadModel(VADModelDownloadURL(), vadModelPath, func(downloaded, total int64) {
-					if total > 0 {
-						pct := float64(downloaded) / float64(total) * 100
-						sendProgress("downloading_model", pct, fmt.Sprintf("Downloading VAD model %s / %s", formatBytes(downloaded), formatBytes(total)))
-					} else {
-						sendProgress("downloading_model", 0, fmt.Sprintf("Downloading VAD model %s...", formatBytes(downloaded)))
-					}
-				}); err != nil {
-					sendError("VAD model download failed", err.Error())
-					return
-				}
-				sendProgress("downloading_model", 100, "VAD model downloaded")
-			}
-		}
+	if err := ensureASRAssets(p.svcManager.config.SearchRoots, cmd, selectedASRBackend); err != nil {
+		sendError("Model check failed", err.Error())
+		return
 	}
 
 	// Step 3: Ensure services are running
@@ -135,6 +89,9 @@ func (p *Pipeline) Run(cmd Command) {
 		sendError("Service startup failed", err.Error())
 		return
 	}
+
+	preparedInput := prepareTranscriptionInput(cmd, selectedASRBackend)
+	defer preparedInput.Cleanup()
 
 	// Step 4: Transcribe
 	sendStage("transcribing", "Transcribing speech...")
@@ -192,7 +149,9 @@ func (p *Pipeline) Run(cmd Command) {
 		}
 	}()
 
-	result, err := p.transcribe(cmd, selectedASRBackend, selectedASRModelID)
+	transcribeCmd := cmd
+	transcribeCmd.InputVideo = preparedInput.TranscriptionPath
+	result, err := p.transcribe(transcribeCmd, selectedASRBackend, selectedASRModelID)
 	close(done)
 
 	if err != nil {
@@ -208,7 +167,7 @@ func (p *Pipeline) Run(cmd Command) {
 
 	if diarizationRequested {
 		sendStage("diarizing", "Labeling speakers...")
-		annotatedSegments, count, annotateErr := p.annotateDiarization(cmd.InputVideo, segments)
+		annotatedSegments, count, annotateErr := p.annotateDiarization(preparedInput.DiarizationPath, segments)
 		if annotateErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: diarization failed, continuing without speaker labels: %v\n", annotateErr)
 			sendStage("diarizing", "Speaker labeling unavailable, continuing without speaker labels")
@@ -426,6 +385,91 @@ func (p *Pipeline) ensureServices(cmd Command) error {
 	sendProgress("starting_services", 100, "All services ready")
 
 	return nil
+}
+
+func ensureASRAssets(searchRoots []string, cmd Command, backend string) error {
+	if backend != "whisper_cpp" {
+		return nil
+	}
+
+	installDir := preferredWhisperInstallDir(searchRoots)
+	modelFile := modelFilename(cmd.ModelSize)
+	modelPath := filepath.Join(installDir, "models", modelFile)
+
+	if _, err := os.Stat(modelPath); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("cannot access model at %q: %v", modelPath, err)
+		}
+		sendStage("downloading_model", fmt.Sprintf("Downloading %s model...", cmd.ModelSize))
+		url := ModelDownloadURL(cmd.ModelSize)
+		if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
+			return err
+		}
+		if err := DownloadModel(url, modelPath, func(downloaded, total int64) {
+			if total > 0 {
+				pct := float64(downloaded) / float64(total) * 100
+				sendProgress("downloading_model", pct, fmt.Sprintf("Downloading %s / %s", formatBytes(downloaded), formatBytes(total)))
+			} else {
+				sendProgress("downloading_model", 0, fmt.Sprintf("Downloading %s...", formatBytes(downloaded)))
+			}
+		}); err != nil {
+			return err
+		}
+		sendProgress("downloading_model", 100, "Model downloaded")
+	}
+
+	if !cmd.VADFilter {
+		return nil
+	}
+
+	vadModelPath := filepath.Join(installDir, "models", vadModelFilename)
+	if _, err := os.Stat(vadModelPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("cannot access VAD model at %q: %v", vadModelPath, err)
+	} else if os.IsNotExist(err) {
+		sendStage("downloading_model", "Downloading VAD model...")
+		if err := os.MkdirAll(filepath.Dir(vadModelPath), 0o755); err != nil {
+			return err
+		}
+		if err := DownloadModel(VADModelDownloadURL(), vadModelPath, func(downloaded, total int64) {
+			if total > 0 {
+				pct := float64(downloaded) / float64(total) * 100
+				sendProgress("downloading_model", pct, fmt.Sprintf("Downloading VAD model %s / %s", formatBytes(downloaded), formatBytes(total)))
+			} else {
+				sendProgress("downloading_model", 0, fmt.Sprintf("Downloading VAD model %s...", formatBytes(downloaded)))
+			}
+		}); err != nil {
+			return err
+		}
+		sendProgress("downloading_model", 100, "VAD model downloaded")
+	}
+
+	return nil
+}
+
+func prepareTranscriptionInput(cmd Command, backend string) preparedTranscriptionInput {
+	prepared := preparedTranscriptionInput{
+		TranscriptionPath: cmd.InputVideo,
+		DiarizationPath:   cmd.InputVideo,
+		Cleanup:           func() {},
+	}
+
+	if backend != defaultASRBackend {
+		return prepared
+	}
+
+	stagedPath, cleanup, err := stageNeutralAudio(cmd.InputVideo)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: neutral audio staging failed, falling back to original input: %v\n", err)
+		return prepared
+	}
+
+	prepared.TranscriptionPath = stagedPath
+	prepared.DiarizationPath = stagedPath
+	if cleanup != nil {
+		prepared.Cleanup = cleanup
+	}
+
+	return prepared
 }
 
 func supportedExtsList() string {

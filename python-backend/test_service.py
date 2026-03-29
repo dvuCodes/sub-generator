@@ -15,6 +15,32 @@ import service
 
 
 class ServiceTests(unittest.TestCase):
+    def test_resolve_model_reference_omits_deprecated_local_dir_use_symlinks(self):
+        calls = []
+
+        fake_module = ModuleType("huggingface_hub")
+
+        def fake_snapshot_download(**kwargs):
+            calls.append(kwargs)
+            return "downloaded-model"
+
+        fake_module.snapshot_download = fake_snapshot_download
+
+        original_module = sys.modules.get("huggingface_hub")
+        sys.modules["huggingface_hub"] = fake_module
+        try:
+            with TemporaryDirectory() as tmp:
+                resolved = service.resolve_model_reference("org/model", Path(tmp))
+        finally:
+            if original_module is None:
+                del sys.modules["huggingface_hub"]
+            else:
+                sys.modules["huggingface_hub"] = original_module
+
+        self.assertEqual(resolved, "downloaded-model")
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("local_dir_use_symlinks", calls[0])
+
     def test_build_capabilities_defaults(self):
         capabilities = service.build_capabilities()
         self.assertEqual(capabilities["type"], "capabilities")
