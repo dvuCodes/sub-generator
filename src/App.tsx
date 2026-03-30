@@ -744,6 +744,27 @@ function App() {
             speakerCount={completion.speakerCount}
             onReset={handleReset}
           />
+        ) : isProcessing ? (
+          <>
+            <ProcessingView
+              stage={processing.stage}
+              percent={processing.percent}
+              message={processing.message}
+              elapsedSecs={processing.elapsedSecs}
+              etaSecs={processing.etaSecs}
+              onStop={handleStopProcessing}
+              stopDisabled={isStopping}
+              stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
+            />
+            <ProcessingDrawer
+              stage={processing.stage}
+              percent={processing.percent}
+              message={processing.message}
+              elapsedSecs={processing.elapsedSecs}
+              etaSecs={processing.etaSecs}
+              logEntries={processingLog}
+            />
+          </>
         ) : appState === "installing" && installState ? (
           <ProcessingView
             stage={installState.stage}
@@ -860,19 +881,6 @@ function App() {
           </>
         )}
       </main>
-      <ProcessingDrawer
-        open={isProcessing}
-        stage={processing.stage}
-        percent={processing.percent}
-        message={processing.message}
-        elapsedSecs={processing.elapsedSecs}
-        etaSecs={processing.etaSecs}
-        logEntries={processingLog}
-        onStop={handleStopProcessing}
-        stopDisabled={isStopping}
-        stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
-        stageLabels={STAGE_LABELS}
-      />
     </div>
   );
 }
