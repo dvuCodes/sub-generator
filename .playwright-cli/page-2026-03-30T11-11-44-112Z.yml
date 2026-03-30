@@ -1,0 +1,97 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e8]
+        - generic [ref=e10]:
+          - heading "SUBGEN" [level=1] [ref=e11]
+          - paragraph [ref=e12]: Local subtitle generator
+      - generic [ref=e15]: Connecting
+  - main [ref=e16]:
+    - button "Input Video Click to select a video file .mp4 .mkv .avi .mov .webm .flv .wmv .m4v" [ref=e17] [cursor=pointer]:
+      - generic [ref=e18]:
+        - img [ref=e20]
+        - generic [ref=e23]:
+          - paragraph [ref=e24]: Input Video
+          - paragraph [ref=e25]: Click to select a video file
+          - paragraph [ref=e26]: .mp4 .mkv .avi .mov .webm .flv .wmv .m4v
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]: Source
+          - textbox "Search source language" [ref=e31]
+          - combobox [ref=e32]:
+            - generic: Auto-detect
+            - img
+        - generic [ref=e33]:
+          - generic [ref=e34]: Target
+          - textbox "Search target language" [ref=e35]
+          - combobox [ref=e36]:
+            - generic: Select target language
+            - img
+      - paragraph [ref=e37]: Choose a target language to run translation.
+    - generic [ref=e38]:
+      - generic [ref=e39]:
+        - generic [ref=e40]: ASR Backend
+        - generic [ref=e41]:
+          - button "Faster Whisper (setup required) Bundled Python runtime for default multilingual ASR" [disabled] [ref=e42]:
+            - generic [ref=e43]: Faster Whisper (setup required)
+            - generic [ref=e44]: Bundled Python runtime for default multilingual ASR
+          - button "whisper.cpp Legacy whisper.cpp fallback path" [ref=e45]:
+            - generic [ref=e46]: whisper.cpp
+            - generic [ref=e47]: Legacy whisper.cpp fallback path
+      - generic [ref=e48]:
+        - generic [ref=e49]: ASR Model
+        - generic [ref=e50]:
+          - button "Large v3 Turbo Recommended Fast multilingual default with CTranslate2 weights" [ref=e51]:
+            - generic [ref=e52]:
+              - generic [ref=e53]: Large v3 Turbo
+              - generic [ref=e54]: Recommended
+            - generic [ref=e55]: Fast multilingual default with CTranslate2 weights
+          - button "Large v3 Highest accuracy Stronger quality, heavier runtime cost" [ref=e56]:
+            - generic [ref=e57]:
+              - generic [ref=e58]: Large v3
+              - generic [ref=e59]: Highest accuracy
+            - generic [ref=e60]: Stronger quality, heavier runtime cost
+      - generic [ref=e61]:
+        - generic [ref=e62]: Translation Backend
+        - generic [ref=e63]:
+          - button "No translation Generate subtitles in the source language only" [ref=e64]:
+            - generic [ref=e65]: No translation
+            - generic [ref=e66]: Generate subtitles in the source language only
+          - button "NLLB (setup required) Requires the ML backend. See setup guidance above." [disabled] [ref=e67]:
+            - generic [ref=e68]: NLLB (setup required)
+            - generic [ref=e69]: Requires the ML backend. See setup guidance above.
+          - button "Gemma Context (setup required) Requires the ML backend and llama.cpp. See setup guidance above." [disabled] [ref=e70]:
+            - generic [ref=e71]: Gemma Context (setup required)
+            - generic [ref=e72]: Requires the ML backend and llama.cpp. See setup guidance above.
+      - generic [ref=e73]:
+        - generic [ref=e74]:
+          - generic [ref=e75]: Speaker Diarization
+          - paragraph [ref=e76]: Add speaker labels and break translation blocks on speaker changes
+        - switch [ref=e77]
+    - generic [ref=e78]:
+      - generic [ref=e79]: Output Format
+      - generic [ref=e80]:
+        - button "SRT Universal" [ref=e81]:
+          - generic [ref=e82]: SRT
+          - generic [ref=e83]: Universal
+        - button "ASS Styled / CJK" [ref=e84]:
+          - generic [ref=e85]: ASS
+          - generic [ref=e86]: Styled / CJK
+        - button "WebVTT Web standard" [ref=e87]:
+          - generic [ref=e88]: WebVTT
+          - generic [ref=e89]: Web standard
+    - button "Advanced ▼" [ref=e91]:
+      - generic [ref=e92]:
+        - img [ref=e93]
+        - text: Advanced
+      - generic [ref=e96]: ▼
+    - generic [ref=e97]:
+      - img [ref=e98]
+      - generic [ref=e100]:
+        - paragraph [ref=e101]: "Failed to start backend: TypeError: Cannot read properties of undefined (reading 'invoke')"
+        - button "Dismiss" [ref=e102]
+    - button "Waiting for backend..." [disabled]:
+      - img
+      - text: Waiting for backend...

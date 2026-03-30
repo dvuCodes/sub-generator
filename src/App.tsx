@@ -4,6 +4,10 @@ import { LanguageSelector } from "./components/LanguageSelector";
 import { ModelSelector } from "./components/ModelSelector";
 import { OutputResult } from "./components/OutputResult";
 import { ProcessingView } from "./components/ProcessingView";
+import {
+  ProcessingDrawer,
+  type ProcessingLogEntry,
+} from "./components/ProcessingDrawer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { VideoDropzone } from "./components/VideoDropzone";
 import { VramIndicator } from "./components/VramIndicator";
@@ -69,6 +73,25 @@ interface CompletionState {
   speakerCount?: number;
 }
 
+const STAGE_LABELS: Record<string, string> = {
+  validating: "Validate",
+  downloading_model: "Download",
+  starting_services: "Services",
+  transcribing: "Transcribe",
+  diarizing: "Speakers",
+  translating: "Translate",
+  writing: "Write",
+};
+
+function formatLogTime(date: Date = new Date()) {
+  return date.toLocaleTimeString("en-AU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 function App() {
   const { connected, connecting, connect, disconnect, sendCommand, onResponse } =
     useSidecar();
@@ -97,6 +120,7 @@ function App() {
   const [isStopping, setIsStopping] = useState(false);
   const [setupStatus, setSetupStatus] = useState<SetupStatusResponse | null>(null);
   const [installState, setInstallState] = useState<InstallState | null>(null);
+  const [processingLog, setProcessingLog] = useState<ProcessingLogEntry[]>([]);
 
   const selectedASRBackend = resolvePreferredASRBackend(capabilities, asrBackend);
   const selectedTranslationBackend = resolvePreferredTranslationBackend(
@@ -182,6 +206,38 @@ function App() {
   const installStateRef = useRef(installState);
   installStateRef.current = installState;
   const promptedInstallActionsRef = useRef(new Set<string>());
+  const logCounterRef = useRef(0);
+  const logMetaRef = useRef({
+    lastStage: "",
+    lastPercent: -1,
+    lastMessage: "",
+  });
+
+  const appendLog = useCallback(
+    (entry: Omit<ProcessingLogEntry, "id" | "time">) => {
+      const id = `log-${logCounterRef.current++}`;
+      const time = formatLogTime();
+      setProcessingLog((current) => [
+        ...current.slice(-199),
+        { id, time, ...entry },
+      ]);
+    },
+    []
+  );
+
+  const resetProcessingLog = useCallback((message?: string) => {
+    logCounterRef.current = 0;
+    logMetaRef.current = { lastStage: "", lastPercent: -1, lastMessage: "" };
+    if (message) {
+      const time = formatLogTime();
+      setProcessingLog([
+        { id: "log-0", time, level: "info", label: "init", message },
+      ]);
+      logCounterRef.current = 1;
+    } else {
+      setProcessingLog([]);
+    }
+  }, []);
 
   useEffect(() => {
     connect().catch((err) => {
@@ -219,6 +275,39 @@ function App() {
             );
           } else {
             setProcessing((current) => advanceProcessingState(current, response));
+            const percent = Math.round(response.percent);
+            const label = STAGE_LABELS[response.stage] ?? response.stage;
+            const shouldLogStage = response.stage !== logMetaRef.current.lastStage;
+            const shouldLogProgress =
+              shouldLogStage ||
+              percent === 0 ||
+              percent === 100 ||
+              percent - logMetaRef.current.lastPercent >= 5 ||
+              response.message !== logMetaRef.current.lastMessage;
+
+            if (shouldLogStage) {
+              appendLog({
+                level: "info",
+                label: "stage",
+                message: `${label} started`,
+              });
+              logMetaRef.current.lastStage = response.stage;
+              logMetaRef.current.lastPercent = -1;
+            }
+
+            if (shouldLogProgress) {
+              const progressMessage = response.message
+                ? `${label} ${percent}% — ${response.message}`
+                : `${label} ${percent}%`;
+              appendLog({
+                level: "info",
+                label: "progress",
+                message: progressMessage,
+              });
+            }
+
+            logMetaRef.current.lastPercent = percent;
+            logMetaRef.current.lastMessage = response.message;
           }
           break;
         case "stage":
@@ -228,6 +317,26 @@ function App() {
             );
           } else {
             setProcessing((current) => advanceProcessingState(current, response));
+            const label = STAGE_LABELS[response.stage] ?? response.stage;
+            if (response.stage !== logMetaRef.current.lastStage) {
+              appendLog({
+                level: "info",
+                label: "stage",
+                message: response.message
+                  ? `${label} — ${response.message}`
+                  : `${label} started`,
+              });
+              logMetaRef.current.lastStage = response.stage;
+              logMetaRef.current.lastPercent = -1;
+              logMetaRef.current.lastMessage = response.message;
+            } else if (response.message !== logMetaRef.current.lastMessage) {
+              appendLog({
+                level: "info",
+                label: "update",
+                message: response.message || `${label} updated`,
+              });
+              logMetaRef.current.lastMessage = response.message;
+            }
           }
           break;
         case "complete":
@@ -242,6 +351,11 @@ function App() {
             speakerCount: response.speaker_count,
           });
           setAppState("complete");
+          appendLog({
+            level: "success",
+            label: "complete",
+            message: "Subtitle generation finished.",
+          });
           sendCommandRef.current({ command: "stop_services" }).catch((err) => {
             console.error("Failed to stop services:", err);
           });
@@ -269,6 +383,11 @@ function App() {
             break;
           }
 
+          appendLog({
+            level: "error",
+            label: "error",
+            message: formattedError,
+          });
           setErrorMsg(formattedError);
           setAppState("error");
           sendCommandRef.current({ command: "stop_services" }).catch((err) => {
@@ -278,7 +397,7 @@ function App() {
         }
       }
     });
-  }, [onResponse]);
+  }, [appendLog, onResponse]);
 
   useEffect(() => {
     if (!connected) {
@@ -354,6 +473,7 @@ function App() {
       elapsedSecs: null,
       etaSecs: null,
     });
+    resetProcessingLog("Session initialized.");
     setErrorMsg("");
 
     try {
@@ -384,6 +504,7 @@ function App() {
     effectiveTranslationBackend,
     format,
     model,
+    resetProcessingLog,
     selectedASRBackend,
     selectedASRModelId,
     sendCommand,
@@ -399,7 +520,8 @@ function App() {
     setCompletion(null);
     setErrorMsg("");
     setProcessing(createInitialProcessingState());
-  }, []);
+    resetProcessingLog();
+  }, [resetProcessingLog]);
 
   const handleStopProcessing = useCallback(async () => {
     if (appState !== "processing" || isStopping) {
@@ -411,6 +533,11 @@ function App() {
       ...current,
       message: "Stopping processing...",
     }));
+    appendLog({
+      level: "warn",
+      label: "stop",
+      message: "Stop requested by user. Waiting for shutdown...",
+    });
 
     try {
       await disconnect();
@@ -418,6 +545,7 @@ function App() {
       setCompletion(null);
       setErrorMsg("");
       setProcessing(createInitialProcessingState());
+      resetProcessingLog();
       await connect();
     } catch (err) {
       setErrorMsg(`Failed to stop processing: ${err}`);
@@ -425,7 +553,7 @@ function App() {
     } finally {
       setIsStopping(false);
     }
-  }, [appState, connect, disconnect, isStopping]);
+  }, [appState, appendLog, connect, disconnect, isStopping, resetProcessingLog]);
 
   const handleInstall = useCallback(
     async (actionId: string) => {
@@ -616,17 +744,6 @@ function App() {
             speakerCount={completion.speakerCount}
             onReset={handleReset}
           />
-        ) : isProcessing ? (
-          <ProcessingView
-            stage={processing.stage}
-            percent={processing.percent}
-            message={processing.message}
-            elapsedSecs={processing.elapsedSecs}
-            etaSecs={processing.etaSecs}
-            onStop={handleStopProcessing}
-            stopDisabled={isStopping}
-            stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
-          />
         ) : appState === "installing" && installState ? (
           <ProcessingView
             stage={installState.stage}
@@ -726,6 +843,7 @@ function App() {
               disabled={
                 !videoPath ||
                 !connected ||
+                isProcessing ||
                 shouldDisableGenerate(
                   setupStatus,
                   {
@@ -742,6 +860,19 @@ function App() {
           </>
         )}
       </main>
+      <ProcessingDrawer
+        open={isProcessing}
+        stage={processing.stage}
+        percent={processing.percent}
+        message={processing.message}
+        elapsedSecs={processing.elapsedSecs}
+        etaSecs={processing.etaSecs}
+        logEntries={processingLog}
+        onStop={handleStopProcessing}
+        stopDisabled={isStopping}
+        stopLabel={isStopping ? "Stopping..." : "Stop Processing"}
+        stageLabels={STAGE_LABELS}
+      />
     </div>
   );
 }
