@@ -20,6 +20,21 @@
   will-change: transform;
 }
 
+@keyframes tui-drawer-in {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tui-drawer {
+  animation: tui-drawer-in 220ms ease-out;
+}
+
 @theme inline {
   --font-heading: var(--font-mono);
   --font-mono: 'JetBrains Mono Variable', monospace;
