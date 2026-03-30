@@ -20,10 +20,10 @@
   will-change: transform;
 }
 
-@keyframes tui-drawer-in {
+@keyframes tui-console-in {
   0% {
     opacity: 0;
-    transform: translateY(18px);
+    transform: translateY(10px);
   }
   100% {
     opacity: 1;
@@ -31,8 +31,8 @@
   }
 }
 
-.tui-drawer {
-  animation: tui-drawer-in 220ms ease-out;
+.tui-console {
+  animation: tui-console-in 220ms ease-out;
 }
 
 @theme inline {
