@@ -1,0 +1,361 @@
+# test log
+getenv GOTMPDIR
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001
+open C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\service.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\ml-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\services\ml-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\run.bat
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\subgen_ml_backend\__main__.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\app\service.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\service.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\run.bat
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\run.bat
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\ml-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\services\ml-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\run.bat
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\subgen_ml_backend\__main__.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\app\service.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\service.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\runtime\python.exe
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\runtime\python
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\.venv\Scripts\python.exe
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\.venv\bin\python
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\ml-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\services\ml-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\run.bat
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\subgen_ml_backend\__main__.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\app\service.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\service.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\subgen_ml_backend\__main__.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\app\service.py
+stat C:\Users\datvu\AppData\Local\Temp\TestStartMLBackendRejectsHealthyUnmanagedService2217076121\001\python-backend\service.py
+stat services\ml-backend\run.bat
+getenv PATHEXT
+getenv NoDefaultCurrentDirectoryInExePath
+stat python.com
+stat python.exe
+stat python.bat
+stat python.cmd
+stat python.vbs
+stat python.vbe
+stat python.js
+stat python.jse
+stat python.wsf
+stat python.wsh
+stat python.msc
+stat python.cpl
+getenv path
+stat C:\Program Files\Go\bin\python.com
+stat C:\Program Files\Go\bin\python.exe
+stat C:\Program Files\Go\bin\python.bat
+stat C:\Program Files\Go\bin\python.cmd
+stat C:\Program Files\Go\bin\python.vbs
+stat C:\Program Files\Go\bin\python.vbe
+stat C:\Program Files\Go\bin\python.js
+stat C:\Program Files\Go\bin\python.jse
+stat C:\Program Files\Go\bin\python.wsf
+stat C:\Program Files\Go\bin\python.wsh
+stat C:\Program Files\Go\bin\python.msc
+stat C:\Program Files\Go\bin\python.cpl
+stat C:\Program Files\PowerShell\7\python.com
+stat C:\Program Files\PowerShell\7\python.exe
+stat C:\Program Files\PowerShell\7\python.bat
+stat C:\Program Files\PowerShell\7\python.cmd
+stat C:\Program Files\PowerShell\7\python.vbs
+stat C:\Program Files\PowerShell\7\python.vbe
+stat C:\Program Files\PowerShell\7\python.js
+stat C:\Program Files\PowerShell\7\python.jse
+stat C:\Program Files\PowerShell\7\python.wsf
+stat C:\Program Files\PowerShell\7\python.wsh
+stat C:\Program Files\PowerShell\7\python.msc
+stat C:\Program Files\PowerShell\7\python.cpl
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.com
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.exe
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.bat
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.cmd
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.vbs
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.vbe
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.js
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.jse
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.wsf
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.wsh
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.msc
+stat C:\Users\datvu\.codex\tmp\arg0\codex-arg0Fzemck\python.cpl
+stat C:\WINDOWS\system32\python.com
+stat C:\WINDOWS\system32\python.exe
+stat C:\WINDOWS\system32\python.bat
+stat C:\WINDOWS\system32\python.cmd
+stat C:\WINDOWS\system32\python.vbs
+stat C:\WINDOWS\system32\python.vbe
+stat C:\WINDOWS\system32\python.js
+stat C:\WINDOWS\system32\python.jse
+stat C:\WINDOWS\system32\python.wsf
+stat C:\WINDOWS\system32\python.wsh
+stat C:\WINDOWS\system32\python.msc
+stat C:\WINDOWS\system32\python.cpl
+stat C:\WINDOWS\python.com
+stat C:\WINDOWS\python.exe
+stat C:\WINDOWS\python.bat
+stat C:\WINDOWS\python.cmd
+stat C:\WINDOWS\python.vbs
+stat C:\WINDOWS\python.vbe
+stat C:\WINDOWS\python.js
+stat C:\WINDOWS\python.jse
+stat C:\WINDOWS\python.wsf
+stat C:\WINDOWS\python.wsh
+stat C:\WINDOWS\python.msc
+stat C:\WINDOWS\python.cpl
+stat C:\WINDOWS\System32\Wbem\python.com
+stat C:\WINDOWS\System32\Wbem\python.exe
+stat C:\WINDOWS\System32\Wbem\python.bat
+stat C:\WINDOWS\System32\Wbem\python.cmd
+stat C:\WINDOWS\System32\Wbem\python.vbs
+stat C:\WINDOWS\System32\Wbem\python.vbe
+stat C:\WINDOWS\System32\Wbem\python.js
+stat C:\WINDOWS\System32\Wbem\python.jse
+stat C:\WINDOWS\System32\Wbem\python.wsf
+stat C:\WINDOWS\System32\Wbem\python.wsh
+stat C:\WINDOWS\System32\Wbem\python.msc
+stat C:\WINDOWS\System32\Wbem\python.cpl
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.com
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.exe
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.bat
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.cmd
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.vbs
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.vbe
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.js
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.jse
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.wsf
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.wsh
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.msc
+stat C:\WINDOWS\System32\WindowsPowerShell\v1.0\python.cpl
+stat C:\WINDOWS\System32\OpenSSH\python.com
+stat C:\WINDOWS\System32\OpenSSH\python.exe
+stat C:\WINDOWS\System32\OpenSSH\python.bat
+stat C:\WINDOWS\System32\OpenSSH\python.cmd
+stat C:\WINDOWS\System32\OpenSSH\python.vbs
+stat C:\WINDOWS\System32\OpenSSH\python.vbe
+stat C:\WINDOWS\System32\OpenSSH\python.js
+stat C:\WINDOWS\System32\OpenSSH\python.jse
+stat C:\WINDOWS\System32\OpenSSH\python.wsf
+stat C:\WINDOWS\System32\OpenSSH\python.wsh
+stat C:\WINDOWS\System32\OpenSSH\python.msc
+stat C:\WINDOWS\System32\OpenSSH\python.cpl
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.com
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.exe
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.bat
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.cmd
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.vbs
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.vbe
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.js
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.jse
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.wsf
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.wsh
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.msc
+stat C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR\python.cpl
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.com
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.exe
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.bat
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.cmd
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.vbs
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.vbe
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.js
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.jse
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.wsf
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.wsh
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.msc
+stat C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common\python.cpl
+stat C:\Program Files\dotnet\python.com
+stat C:\Program Files\dotnet\python.exe
+stat C:\Program Files\dotnet\python.bat
+stat C:\Program Files\dotnet\python.cmd
+stat C:\Program Files\dotnet\python.vbs
+stat C:\Program Files\dotnet\python.vbe
+stat C:\Program Files\dotnet\python.js
+stat C:\Program Files\dotnet\python.jse
+stat C:\Program Files\dotnet\python.wsf
+stat C:\Program Files\dotnet\python.wsh
+stat C:\Program Files\dotnet\python.msc
+stat C:\Program Files\dotnet\python.cpl
+stat C:\Program Files\Calibre2\python.com
+stat C:\Program Files\Calibre2\python.exe
+stat C:\Program Files\Calibre2\python.bat
+stat C:\Program Files\Calibre2\python.cmd
+stat C:\Program Files\Calibre2\python.vbs
+stat C:\Program Files\Calibre2\python.vbe
+stat C:\Program Files\Calibre2\python.js
+stat C:\Program Files\Calibre2\python.jse
+stat C:\Program Files\Calibre2\python.wsf
+stat C:\Program Files\Calibre2\python.wsh
+stat C:\Program Files\Calibre2\python.msc
+stat C:\Program Files\Calibre2\python.cpl
+stat C:\Program Files\Git\cmd\python.com
+stat C:\Program Files\Git\cmd\python.exe
+stat C:\Program Files\Git\cmd\python.bat
+stat C:\Program Files\Git\cmd\python.cmd
+stat C:\Program Files\Git\cmd\python.vbs
+stat C:\Program Files\Git\cmd\python.vbe
+stat C:\Program Files\Git\cmd\python.js
+stat C:\Program Files\Git\cmd\python.jse
+stat C:\Program Files\Git\cmd\python.wsf
+stat C:\Program Files\Git\cmd\python.wsh
+stat C:\Program Files\Git\cmd\python.msc
+stat C:\Program Files\Git\cmd\python.cpl
+stat C:\Program Files\nodejs\python.com
+stat C:\Program Files\nodejs\python.exe
+stat C:\Program Files\nodejs\python.bat
+stat C:\Program Files\nodejs\python.cmd
+stat C:\Program Files\nodejs\python.vbs
+stat C:\Program Files\nodejs\python.vbe
+stat C:\Program Files\nodejs\python.js
+stat C:\Program Files\nodejs\python.jse
+stat C:\Program Files\nodejs\python.wsf
+stat C:\Program Files\nodejs\python.wsh
+stat C:\Program Files\nodejs\python.msc
+stat C:\Program Files\nodejs\python.cpl
+stat C:\Program Files\Docker\Docker\resources\bin\python.com
+stat C:\Program Files\Docker\Docker\resources\bin\python.exe
+stat C:\Program Files\Docker\Docker\resources\bin\python.bat
+stat C:\Program Files\Docker\Docker\resources\bin\python.cmd
+stat C:\Program Files\Docker\Docker\resources\bin\python.vbs
+stat C:\Program Files\Docker\Docker\resources\bin\python.vbe
+stat C:\Program Files\Docker\Docker\resources\bin\python.js
+stat C:\Program Files\Docker\Docker\resources\bin\python.jse
+stat C:\Program Files\Docker\Docker\resources\bin\python.wsf
+stat C:\Program Files\Docker\Docker\resources\bin\python.wsh
+stat C:\Program Files\Docker\Docker\resources\bin\python.msc
+stat C:\Program Files\Docker\Docker\resources\bin\python.cpl
+stat C:\Program Files\GitHub CLI\python.com
+stat C:\Program Files\GitHub CLI\python.exe
+stat C:\Program Files\GitHub CLI\python.bat
+stat C:\Program Files\GitHub CLI\python.cmd
+stat C:\Program Files\GitHub CLI\python.vbs
+stat C:\Program Files\GitHub CLI\python.vbe
+stat C:\Program Files\GitHub CLI\python.js
+stat C:\Program Files\GitHub CLI\python.jse
+stat C:\Program Files\GitHub CLI\python.wsf
+stat C:\Program Files\GitHub CLI\python.wsh
+stat C:\Program Files\GitHub CLI\python.msc
+stat C:\Program Files\GitHub CLI\python.cpl
+stat C:\Program Files\cursor\resources\app\bin\python.com
+stat C:\Program Files\cursor\resources\app\bin\python.exe
+stat C:\Program Files\cursor\resources\app\bin\python.bat
+stat C:\Program Files\cursor\resources\app\bin\python.cmd
+stat C:\Program Files\cursor\resources\app\bin\python.vbs
+stat C:\Program Files\cursor\resources\app\bin\python.vbe
+stat C:\Program Files\cursor\resources\app\bin\python.js
+stat C:\Program Files\cursor\resources\app\bin\python.jse
+stat C:\Program Files\cursor\resources\app\bin\python.wsf
+stat C:\Program Files\cursor\resources\app\bin\python.wsh
+stat C:\Program Files\cursor\resources\app\bin\python.msc
+stat C:\Program Files\cursor\resources\app\bin\python.cpl
+stat C:\Program Files\CMake\bin\python.com
+stat C:\Program Files\CMake\bin\python.exe
+stat C:\Program Files\CMake\bin\python.bat
+stat C:\Program Files\CMake\bin\python.cmd
+stat C:\Program Files\CMake\bin\python.vbs
+stat C:\Program Files\CMake\bin\python.vbe
+stat C:\Program Files\CMake\bin\python.js
+stat C:\Program Files\CMake\bin\python.jse
+stat C:\Program Files\CMake\bin\python.wsf
+stat C:\Program Files\CMake\bin\python.wsh
+stat C:\Program Files\CMake\bin\python.msc
+stat C:\Program Files\CMake\bin\python.cpl
+stat C:\Program Files\PowerShell\7-preview\preview\python.com
+stat C:\Program Files\PowerShell\7-preview\preview\python.exe
+stat C:\Program Files\PowerShell\7-preview\preview\python.bat
+stat C:\Program Files\PowerShell\7-preview\preview\python.cmd
+stat C:\Program Files\PowerShell\7-preview\preview\python.vbs
+stat C:\Program Files\PowerShell\7-preview\preview\python.vbe
+stat C:\Program Files\PowerShell\7-preview\preview\python.js
+stat C:\Program Files\PowerShell\7-preview\preview\python.jse
+stat C:\Program Files\PowerShell\7-preview\preview\python.wsf
+stat C:\Program Files\PowerShell\7-preview\preview\python.wsh
+stat C:\Program Files\PowerShell\7-preview\preview\python.msc
+stat C:\Program Files\PowerShell\7-preview\preview\python.cpl
+stat C:\Program Files\Go\bin\python.com
+stat C:\Program Files\Go\bin\python.exe
+stat C:\Program Files\Go\bin\python.bat
+stat C:\Program Files\Go\bin\python.cmd
+stat C:\Program Files\Go\bin\python.vbs
+stat C:\Program Files\Go\bin\python.vbe
+stat C:\Program Files\Go\bin\python.js
+stat C:\Program Files\Go\bin\python.jse
+stat C:\Program Files\Go\bin\python.wsf
+stat C:\Program Files\Go\bin\python.wsh
+stat C:\Program Files\Go\bin\python.msc
+stat C:\Program Files\Go\bin\python.cpl
+stat C:\Program Files\PowerShell\7\python.com
+stat C:\Program Files\PowerShell\7\python.exe
+stat C:\Program Files\PowerShell\7\python.bat
+stat C:\Program Files\PowerShell\7\python.cmd
+stat C:\Program Files\PowerShell\7\python.vbs
+stat C:\Program Files\PowerShell\7\python.vbe
+stat C:\Program Files\PowerShell\7\python.js
+stat C:\Program Files\PowerShell\7\python.jse
+stat C:\Program Files\PowerShell\7\python.wsf
+stat C:\Program Files\PowerShell\7\python.wsh
+stat C:\Program Files\PowerShell\7\python.msc
+stat C:\Program Files\PowerShell\7\python.cpl
+stat C:\Users\datvu\.cargo\bin\python.com
+stat C:\Users\datvu\.cargo\bin\python.exe
+stat C:\Users\datvu\.cargo\bin\python.bat
+stat C:\Users\datvu\.cargo\bin\python.cmd
+stat C:\Users\datvu\.cargo\bin\python.vbs
+stat C:\Users\datvu\.cargo\bin\python.vbe
+stat C:\Users\datvu\.cargo\bin\python.js
+stat C:\Users\datvu\.cargo\bin\python.jse
+stat C:\Users\datvu\.cargo\bin\python.wsf
+stat C:\Users\datvu\.cargo\bin\python.wsh
+stat C:\Users\datvu\.cargo\bin\python.msc
+stat C:\Users\datvu\.cargo\bin\python.cpl
+stat C:\Users\datvu\AppData\Local\pnpm\python.com
+stat C:\Users\datvu\AppData\Local\pnpm\python.exe
+stat C:\Users\datvu\AppData\Local\pnpm\python.bat
+stat C:\Users\datvu\AppData\Local\pnpm\python.cmd
+stat C:\Users\datvu\AppData\Local\pnpm\python.vbs
+stat C:\Users\datvu\AppData\Local\pnpm\python.vbe
+stat C:\Users\datvu\AppData\Local\pnpm\python.js
+stat C:\Users\datvu\AppData\Local\pnpm\python.jse
+stat C:\Users\datvu\AppData\Local\pnpm\python.wsf
+stat C:\Users\datvu\AppData\Local\pnpm\python.wsh
+stat C:\Users\datvu\AppData\Local\pnpm\python.msc
+stat C:\Users\datvu\AppData\Local\pnpm\python.cpl
+stat C:\Users\datvu\.local\bin\python.com
+stat C:\Users\datvu\.local\bin\python.exe
+stat C:\Users\datvu\.local\bin\python.bat
+stat C:\Users\datvu\.local\bin\python.cmd
+stat C:\Users\datvu\.local\bin\python.vbs
+stat C:\Users\datvu\.local\bin\python.vbe
+stat C:\Users\datvu\.local\bin\python.js
+stat C:\Users\datvu\.local\bin\python.jse
+stat C:\Users\datvu\.local\bin\python.wsf
+stat C:\Users\datvu\.local\bin\python.wsh
+stat C:\Users\datvu\.local\bin\python.msc
+stat C:\Users\datvu\.local\bin\python.cpl
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.com
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.exe
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.bat
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.cmd
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.vbs
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.vbe
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.js
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.jse
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.wsf
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.wsh
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.msc
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\Scripts\python.cpl
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\python.com
+stat C:\Users\datvu\AppData\Local\Programs\Python\Python313\python.exe
+getenv HTTP_PROXY
+getenv http_proxy
+getenv HTTPS_PROXY
+getenv https_proxy
+getenv NO_PROXY
+getenv no_proxy
+getenv REQUEST_METHOD
+open C:\Users\datvu\AppData\Local\Temp

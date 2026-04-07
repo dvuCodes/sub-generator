@@ -220,11 +220,11 @@ func (sm *ServiceManager) StartMLBackend() error {
 	sm.mu.Unlock()
 
 	healthy := sm.IsMLBackendRunning()
-	if err := rejectUnmanagedListeningService("ml-backend", sm.config.MLBackendPort, currentProcess, healthy); err != nil {
+	if err := rejectUnmanagedHealthyService("ml-backend", sm.config.MLBackendPort, currentProcess, healthy); err != nil {
 		return err
 	}
-	if currentProcess == nil && healthy {
-		return nil
+	if err := rejectUnmanagedListeningService("ml-backend", sm.config.MLBackendPort, currentProcess, healthy); err != nil {
+		return err
 	}
 	if currentProcess != nil && healthy {
 		return nil
