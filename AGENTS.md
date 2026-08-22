@@ -12,6 +12,7 @@
 - Run project git commands from `C:\Users\datvu\projects\sub-generator`; do not use the parent `C:\Users\datvu\projects` repo for this project.
 - If `rg.exe` is blocked in PowerShell, use `Select-String` and `Get-ChildItem` as the repository search fallback.
 - If the Tauri app uses `externalBin` sidecars, verify the bundled sidecar executable is rebuilt when `go-sidecar/` changes.
+- whisper-server contract facts (verified against upstream master): `response_format=json` returns only `{text}`; segments/timings come from `verbose_json` with `start`/`end` in **seconds**; raw fork `t0/t1` values are **centiseconds**; the VAD field is `vad` (requires `-vm silero model` at startup), never `vad_filter`; DTW token timestamps require flash-attention OFF (`-nfa --dtw <preset>`). Do not reintroduce ms-based t0/t1 parsing.
 - Always mark tasks off when complete.
 - After every correction to assumptions/process, update this `AGENTS.md`.
 - When testing streamed Go HTTP request bodies, do not rely on `ContentLength`; assert the streaming mechanism itself (for example `io.PipeReader`) or read behavior instead.

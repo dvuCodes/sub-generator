@@ -2,12 +2,16 @@ interface ProcessingViewProps {
   stage: string;
   percent: number;
   message: string;
+  onCancel?: () => void;
+  cancelRequested?: boolean;
 }
 
 const STAGE_ORDER = [
   "validating",
   "starting_services",
+  "preparing",
   "transcribing",
+  "timing",
   "translating",
   "writing",
 ];
@@ -15,7 +19,9 @@ const STAGE_ORDER = [
 const STAGE_LABELS: Record<string, string> = {
   validating: "Validating",
   starting_services: "Starting Services",
+  preparing: "Preparing audio & scene detection",
   transcribing: "Transcribing",
+  timing: "Timing normalization",
   translating: "Translating",
   writing: "Writing File",
 };
@@ -24,8 +30,11 @@ export function ProcessingView({
   stage,
   percent,
   message,
+  onCancel,
+  cancelRequested = false,
 }: ProcessingViewProps) {
   const currentIndex = STAGE_ORDER.indexOf(stage);
+  const indeterminate = percent < 0;
 
   return (
     <div className="space-y-6">
@@ -66,15 +75,39 @@ export function ProcessingView({
       <div>
         <div className="flex justify-between text-sm mb-1">
           <span className="text-gray-300">{message}</span>
-          <span className="text-gray-400">{Math.round(percent)}%</span>
+          {!indeterminate && (
+            <span className="text-gray-400">{Math.round(percent)}%</span>
+          )}
         </div>
         <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
-          <div
-            className="bg-blue-500 h-full rounded-full transition-all duration-300"
-            style={{ width: `${Math.min(percent, 100)}%` }}
-          />
+          {indeterminate ? (
+            <div className="bg-blue-500 h-full w-full rounded-full animate-pulse" />
+          ) : (
+            <div
+              className="bg-blue-500 h-full rounded-full transition-all duration-300"
+              style={{ width: `${Math.min(percent, 100)}%` }}
+            />
+          )}
         </div>
       </div>
+
+      {/* Cancel */}
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          disabled={cancelRequested}
+          className={`
+            w-full rounded-lg py-2 text-sm font-medium transition-colors border
+            ${
+              cancelRequested
+                ? "cursor-not-allowed border-gray-700 bg-gray-800 text-gray-500"
+                : "border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20"
+            }
+          `}
+        >
+          {cancelRequested ? "Cancelling..." : "Cancel"}
+        </button>
+      )}
     </div>
   );
 }

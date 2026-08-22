@@ -5,9 +5,25 @@ export type ModelSize =
   | "small"
   | "medium"
   | "large-v3"
-  | "turbo";
+  | "large-v3-q5_0"
+  | "turbo"
+  | "turbo-q5_0"
+  | "turbo-q8_0";
 
 export type OutputFormat = "srt" | "ass" | "vtt";
+
+export type TranslationEngine =
+  | "auto"
+  | "libretranslate"
+  | "deepl"
+  | "llm";
+
+export type HonorificsMode = "keep" | "drop";
+
+export interface GlossaryEntry {
+  source: string;
+  target: string;
+}
 
 export interface GenerateCommand {
   command: "generate";
@@ -19,6 +35,18 @@ export interface GenerateCommand {
   model_size: ModelSize;
   beam_size: number;
   vad_filter: boolean;
+  initial_prompt?: string;
+  frame_rate?: number;
+  translation_engine?: TranslationEngine;
+  deepl_api_key?: string;
+  llm_base_url?: string;
+  llm_model?: string;
+  llm_api_key?: string;
+  synopsis?: string;
+  glossary?: GlossaryEntry[];
+  honorifics?: HonorificsMode;
+  qa_pass?: boolean;
+  shot_snap?: boolean;
 }
 
 export interface ListLanguagesCommand {
@@ -37,12 +65,17 @@ export interface StopServicesCommand {
   command: "stop_services";
 }
 
+export interface CancelCommand {
+  command: "cancel";
+}
+
 export type SidecarCommand =
   | GenerateCommand
   | ListLanguagesCommand
   | SystemInfoCommand
   | StartServicesCommand
-  | StopServicesCommand;
+  | StopServicesCommand
+  | CancelCommand;
 
 // IPC responses (Go sidecar -> frontend)
 export interface ProgressResponse {
@@ -63,12 +96,40 @@ export interface CompleteResponse {
   output_path: string;
   segments: number;
   duration_secs: number;
+  qc?: QCReport;
+  preview?: CueView[];
 }
 
 export interface ErrorResponse {
   type: "error";
   message: string;
   details?: string;
+}
+
+export interface CancelledResponse {
+  type: "cancelled";
+  message: string;
+}
+
+export interface CueView {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface QCIssue {
+  index: number;
+  start: number;
+  end: number;
+  issues: string[];
+}
+
+export interface QCReport {
+  cue_count: number;
+  avg_cps: number;
+  max_cps: number;
+  summary: Record<string, number>;
+  issues?: QCIssue[];
 }
 
 export interface LanguagePair {
@@ -86,6 +147,8 @@ export interface SystemInfoResponse {
   whisper_server: boolean;
   libretranslate: boolean;
   gpu: string;
+  ffmpeg: boolean;
+  vad_model: boolean;
 }
 
 export type SidecarResponse =
@@ -93,5 +156,6 @@ export type SidecarResponse =
   | StageResponse
   | CompleteResponse
   | ErrorResponse
+  | CancelledResponse
   | LanguagesResponse
   | SystemInfoResponse;

@@ -49,11 +49,32 @@ const MODELS: {
     desc: "Best accuracy, requires 10+ GB VRAM",
   },
   {
+    id: "large-v3-q5_0",
+    name: "Large v3 Q5_0",
+    size: "1.1 GB",
+    speed: "Slow",
+    desc: "Quantized large-v3, lower VRAM use",
+  },
+  {
     id: "turbo",
     name: "Turbo",
     size: "809 MB",
     speed: "Fast",
     desc: "Near large-v3 quality at 8x speed",
+  },
+  {
+    id: "turbo-q5_0",
+    name: "Turbo Q5_0 (recommended)",
+    size: "574 MB",
+    speed: "Fastest",
+    desc: "Recommended balance of speed and accuracy",
+  },
+  {
+    id: "turbo-q8_0",
+    name: "Turbo Q8_0",
+    size: "834 MB",
+    speed: "Fast",
+    desc: "Higher precision quantized turbo",
   },
 ];
 

@@ -9,11 +9,16 @@ import { VideoDropzone } from "./components/VideoDropzone";
 import { useSidecar } from "./hooks/useSidecar";
 import { buildLanguageOptions } from "./lib/languages";
 import type {
+  CueView,
   GenerateCommand,
+  GlossaryEntry,
+  HonorificsMode,
   LanguagePair,
   ModelSize,
   OutputFormat,
+  QCReport,
   SidecarResponse,
+  TranslationEngine,
 } from "./lib/types";
 
 type AppState = "idle" | "processing" | "complete" | "error";
@@ -28,12 +33,26 @@ interface CompletionState {
   outputPath: string;
   segments: number;
   durationSecs: number;
+  qc: QCReport | null;
+  preview: CueView[] | null;
 }
 
 interface SystemInfoState {
   whisperServer: boolean;
   libretranslate: boolean;
   gpu: string;
+  ffmpeg: boolean;
+  vadModel: boolean;
+}
+
+function parseGlossary(text: string): GlossaryEntry[] {
+  return text
+    .split("\n")
+    .map((line) => line.split("=", 2).map((part) => part.trim()))
+    .filter((parts): parts is [string, string] =>
+      Boolean(parts[0]) && Boolean(parts[1])
+    )
+    .map(([source, target]) => ({ source, target }));
 }
 
 function App() {
@@ -47,6 +66,19 @@ function App() {
   const [format, setFormat] = useState<OutputFormat>("srt");
   const [beamSize, setBeamSize] = useState(5);
   const [vadFilter, setVadFilter] = useState(true);
+  const [initialPrompt, setInitialPrompt] = useState("");
+  const [frameRate] = useState<number | undefined>(undefined);
+  const [translationEngine, setTranslationEngine] =
+    useState<TranslationEngine>("auto");
+  const [deeplApiKey, setDeeplApiKey] = useState("");
+  const [llmBaseUrl, setLlmBaseUrl] = useState("");
+  const [llmModel, setLlmModel] = useState("");
+  const [llmApiKey, setLlmApiKey] = useState("");
+  const [synopsis, setSynopsis] = useState("");
+  const [glossaryText, setGlossaryText] = useState("");
+  const [honorifics, setHonorifics] = useState<HonorificsMode>("keep");
+  const [qaPass, setQaPass] = useState(false);
+  const [shotSnap, setShotSnap] = useState(true);
 
   const [appState, setAppState] = useState<AppState>("idle");
   const [processing, setProcessing] = useState<ProcessingState>({
@@ -58,6 +90,8 @@ function App() {
   const [systemInfo, setSystemInfo] = useState<SystemInfoState | null>(null);
   const [availablePairs, setAvailablePairs] = useState<LanguagePair[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
+  const [infoMsg, setInfoMsg] = useState("");
+  const [cancelRequested, setCancelRequested] = useState(false);
 
   useEffect(() => {
     connect().catch((err) => {
@@ -88,8 +122,15 @@ function App() {
             outputPath: response.output_path,
             segments: response.segments,
             durationSecs: response.duration_secs,
+            qc: response.qc ?? null,
+            preview: response.preview ?? null,
           });
           setAppState("complete");
+          break;
+        case "cancelled":
+          setProcessing({ stage: "", percent: 0, message: "" });
+          setInfoMsg(response.message || "Generation cancelled");
+          setAppState("idle");
           break;
         case "languages":
           setAvailablePairs(response.installed);
@@ -100,6 +141,8 @@ function App() {
                   whisperServer: false,
                   libretranslate: true,
                   gpu: "unknown",
+                  ffmpeg: false,
+                  vadModel: false,
                 }
           );
           break;
@@ -108,6 +151,8 @@ function App() {
             whisperServer: response.whisper_server,
             libretranslate: response.libretranslate,
             gpu: response.gpu,
+            ffmpeg: response.ffmpeg,
+            vadModel: response.vad_model,
           });
           break;
         case "error":
@@ -141,6 +186,8 @@ function App() {
     setAppState("processing");
     setProcessing({ stage: "validating", percent: 0, message: "Starting..." });
     setErrorMsg("");
+    setInfoMsg("");
+    setCancelRequested(false);
 
     try {
       const command: GenerateCommand = {
@@ -153,7 +200,36 @@ function App() {
         model_size: model,
         beam_size: beamSize,
         vad_filter: vadFilter,
+        frame_rate: frameRate,
+        translation_engine: translationEngine,
+        honorifics: honorifics,
+        qa_pass: qaPass,
+        shot_snap: shotSnap,
       };
+      if (initialPrompt.trim()) {
+        command.initial_prompt = initialPrompt.trim();
+      }
+      if (translationEngine === "deepl" && deeplApiKey.trim()) {
+        command.deepl_api_key = deeplApiKey.trim();
+      }
+      if (translationEngine === "llm") {
+        if (llmBaseUrl.trim()) {
+          command.llm_base_url = llmBaseUrl.trim();
+        }
+        if (llmModel.trim()) {
+          command.llm_model = llmModel.trim();
+        }
+        if (llmApiKey.trim()) {
+          command.llm_api_key = llmApiKey.trim();
+        }
+      }
+      if (synopsis.trim()) {
+        command.synopsis = synopsis.trim();
+      }
+      const glossary = parseGlossary(glossaryText);
+      if (glossary.length > 0) {
+        command.glossary = glossary;
+      }
       await sendCommand(command);
     } catch (err) {
       setErrorMsg(`Failed to send command: ${err}`);
@@ -168,15 +244,38 @@ function App() {
     model,
     beamSize,
     vadFilter,
+    initialPrompt,
+    frameRate,
+    translationEngine,
+    deeplApiKey,
+    llmBaseUrl,
+    llmModel,
+    llmApiKey,
+    synopsis,
+    glossaryText,
+    honorifics,
+    qaPass,
+    shotSnap,
     sendCommand,
   ]);
+
+  const handleCancel = useCallback(() => {
+    if (cancelRequested) return;
+    setCancelRequested(true);
+    sendCommand({ command: "cancel" }).catch((err) => {
+      console.error("Failed to send cancel command:", err);
+      setCancelRequested(false);
+    });
+  }, [cancelRequested, sendCommand]);
 
   const handleReset = useCallback(() => {
     setAppState("idle");
     setVideoPath(null);
     setCompletion(null);
     setErrorMsg("");
+    setInfoMsg("");
     setProcessing({ stage: "", percent: 0, message: "" });
+    setCancelRequested(false);
   }, []);
 
   const isProcessing = appState === "processing";
@@ -198,6 +297,14 @@ function App() {
               Whisper: {systemInfo?.whisperServer ? "ready" : "idle"} |
               Translation: {systemInfo?.libretranslate ? "ready" : "idle"} |
               GPU: {systemInfo?.gpu || "unknown"}
+              {systemInfo && (
+                <>
+                  {" | "}
+                  {systemInfo.ffmpeg ? "FFmpeg ready" : "FFmpeg missing"}
+                  {" | "}VAD model:{" "}
+                  {systemInfo.vadModel ? "available" : "missing"}
+                </>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -221,6 +328,8 @@ function App() {
             outputPath={completion.outputPath}
             segments={completion.segments}
             durationSecs={completion.durationSecs}
+            qc={completion.qc}
+            preview={completion.preview}
             onReset={handleReset}
           />
         ) : (
@@ -257,8 +366,30 @@ function App() {
             <SettingsPanel
               beamSize={beamSize}
               vadFilter={vadFilter}
+              initialPrompt={initialPrompt}
+              translationEngine={translationEngine}
+              deeplApiKey={deeplApiKey}
+              llmBaseUrl={llmBaseUrl}
+              llmModel={llmModel}
+              llmApiKey={llmApiKey}
+              synopsis={synopsis}
+              glossaryText={glossaryText}
+              honorifics={honorifics}
+              qaPass={qaPass}
+              shotSnap={shotSnap}
               onBeamSizeChange={setBeamSize}
               onVadFilterChange={setVadFilter}
+              onInitialPromptChange={setInitialPrompt}
+              onTranslationEngineChange={setTranslationEngine}
+              onDeeplApiKeyChange={setDeeplApiKey}
+              onLlmBaseUrlChange={setLlmBaseUrl}
+              onLlmModelChange={setLlmModel}
+              onLlmApiKeyChange={setLlmApiKey}
+              onSynopsisChange={setSynopsis}
+              onGlossaryTextChange={setGlossaryText}
+              onHonorificsChange={setHonorifics}
+              onQaPassChange={setQaPass}
+              onShotSnapChange={setShotSnap}
               disabled={isProcessing}
             />
 
@@ -267,6 +398,8 @@ function App() {
                 stage={processing.stage}
                 percent={processing.percent}
                 message={processing.message}
+                onCancel={handleCancel}
+                cancelRequested={cancelRequested}
               />
             )}
 
@@ -278,6 +411,18 @@ function App() {
                 <button
                   onClick={() => setAppState("idle")}
                   className="mt-2 text-xs text-red-400 underline hover:text-red-300"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {!isProcessing && infoMsg && (
+              <div className="rounded-lg border border-gray-600/50 bg-gray-800/50 p-4">
+                <p className="text-sm text-gray-300">{infoMsg}</p>
+                <button
+                  onClick={() => setInfoMsg("")}
+                  className="mt-2 text-xs text-gray-400 underline hover:text-gray-200"
                 >
                   Dismiss
                 </button>
