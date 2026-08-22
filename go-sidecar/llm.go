@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -233,17 +232,59 @@ func stripCodeFences(content string) string {
 }
 
 // decodeLenientJSON decodes the first JSON value from s, tolerating trailing
-// prose after the value and trailing commas inside arrays/objects.
+// prose after the value and trailing commas inside arrays/objects. The plain
+// decode is attempted first so valid JSON is never touched by the lenient
+// path.
 func decodeLenientJSON(s string, v any) error {
-	s = trailingCommaRe.ReplaceAllString(s, "$1")
-	dec := json.NewDecoder(strings.NewReader(s))
-	if err := dec.Decode(v); err != nil {
-		return err
+	if err := json.NewDecoder(strings.NewReader(s)).Decode(v); err == nil {
+		return nil
 	}
-	return nil
+	s = stripTrailingCommas(s)
+	return json.NewDecoder(strings.NewReader(s)).Decode(v)
 }
 
-var trailingCommaRe = regexp.MustCompile(`,(\s*[}\]])`)
+// stripTrailingCommas removes commas that directly precede a closing brace or
+// bracket, ignoring anything inside JSON strings (a state machine rather than
+// a regex, so text like "He said \",] ok\"" survives untouched).
+func stripTrailingCommas(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inString := false
+	escaped := false
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inString {
+			b.WriteByte(c)
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+			b.WriteByte(c)
+		case ',':
+			j := i + 1
+			for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
+				j++
+			}
+			if j < len(s) && (s[j] == '}' || s[j] == ']') {
+				continue // drop the trailing comma
+			}
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
 
 // --- prompt construction ---
 
@@ -472,7 +513,8 @@ func policyHash(req TranslateRequest) string {
 	for _, e := range entries {
 		source := strings.TrimSpace(e.Source)
 		target := strings.TrimSpace(e.Target)
-		if source == "" && target == "" {
+		if source == "" || target == "" {
+			// Mirror the prompt builders, which also skip half-empty rows.
 			continue
 		}
 		sb.WriteString("\x1f")
@@ -528,6 +570,7 @@ func (c *translationCache) save() {
 	}
 	tmp := c.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		_ = os.Remove(tmp)
 		return
 	}
 	if err := os.Rename(tmp, c.path); err != nil {
