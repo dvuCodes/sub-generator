@@ -4,7 +4,10 @@ export interface SystemInfoState {
   whisperServer: boolean;
   translationEngine: boolean;
   mlBackend: boolean;
+  libretranslate: boolean;
   gpu: string;
+  ffmpeg: boolean;
+  vadModel: boolean;
 }
 
 export function reduceSystemInfo(
@@ -15,6 +18,9 @@ export function reduceSystemInfo(
     whisperServer: response.whisper_server,
     translationEngine: response.translation_engine,
     mlBackend: response.ml_backend,
+    libretranslate: response.libretranslate,
     gpu: response.gpu,
+    ffmpeg: response.ffmpeg,
+    vadModel: response.vad_model,
   };
 }

@@ -45,12 +45,17 @@ import {
 import type {
   ASRBackend,
   CapabilitiesResponse,
+  CueView,
   GenerateCommand,
+  GlossaryEntry,
+  HonorificsMode,
   ModelSize,
   OutputFormat,
+  QCReport,
   SetupStatusResponse,
   SidecarResponse,
   TranslationBackend,
+  TranslationEngine,
 } from "./lib/types";
 import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -71,14 +76,18 @@ interface CompletionState {
   selectedASRBackend?: string;
   diarizationRan?: boolean;
   speakerCount?: number;
+  qc?: QCReport;
+  preview?: CueView[];
 }
 
 const STAGE_LABELS: Record<string, string> = {
   validating: "Validate",
   downloading_model: "Download",
   starting_services: "Services",
+  preparing: "Prepare",
   transcribing: "Transcribe",
   diarizing: "Speakers",
+  timing: "Timing",
   translating: "Translate",
   writing: "Write",
 };
@@ -92,8 +101,18 @@ function formatLogTime(date: Date = new Date()) {
   });
 }
 
+function parseGlossary(text: string): GlossaryEntry[] {
+  return text
+    .split("\n")
+    .map((line) => line.split("=", 2).map((part) => part.trim()))
+    .filter((parts): parts is [string, string] =>
+      Boolean(parts[0]) && Boolean(parts[1])
+    )
+    .map(([source, target]) => ({ source, target }));
+}
+
 function App() {
-  const { connected, connecting, connect, disconnect, sendCommand, onResponse } =
+  const { connected, connecting, connect, sendCommand, onResponse } =
     useSidecar();
 
   const [videoPath, setVideoPath] = useState<string | null>(null);
@@ -103,6 +122,18 @@ function App() {
   const [format, setFormat] = useState<OutputFormat>("srt");
   const [beamSize, setBeamSize] = useState(5);
   const [vadFilter, setVadFilter] = useState(true);
+  const [initialPrompt, setInitialPrompt] = useState("");
+  const [translationEngine, setTranslationEngine] =
+    useState<TranslationEngine>("backend");
+  const [deeplApiKey, setDeeplApiKey] = useState("");
+  const [llmBaseUrl, setLlmBaseUrl] = useState("");
+  const [llmModel, setLlmModel] = useState("");
+  const [llmApiKey, setLlmApiKey] = useState("");
+  const [synopsis, setSynopsis] = useState("");
+  const [glossaryText, setGlossaryText] = useState("");
+  const [honorifics, setHonorifics] = useState<HonorificsMode>("keep");
+  const [qaPass, setQaPass] = useState(false);
+  const [shotSnap, setShotSnap] = useState(true);
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [asrBackend, setAsrBackend] = useState<ASRBackend>("faster_whisper");
   const [asrModelId, setAsrModelId] = useState("");
@@ -116,6 +147,7 @@ function App() {
   const [completion, setCompletion] = useState<CompletionState | null>(null);
   const [systemInfo, setSystemInfo] = useState<SystemInfoState | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [infoMsg, setInfoMsg] = useState("");
   const [translationWarning, setTranslationWarning] = useState("");
   const [isStopping, setIsStopping] = useState(false);
   const [setupStatus, setSetupStatus] = useState<SetupStatusResponse | null>(null);
@@ -349,6 +381,8 @@ function App() {
             selectedASRBackend: response.selected_asr_backend,
             diarizationRan: response.diarization_ran,
             speakerCount: response.speaker_count,
+            qc: response.qc,
+            preview: response.preview,
           });
           setAppState("complete");
           appendLog({
@@ -358,6 +392,18 @@ function App() {
           });
           sendCommandRef.current({ command: "stop_services" }).catch((err) => {
             console.error("Failed to stop services:", err);
+          });
+          break;
+        case "cancelled":
+          setAppState("idle");
+          setCompletion(null);
+          setProcessing(createInitialProcessingState());
+          setIsStopping(false);
+          setInfoMsg(response.message || "Generation cancelled");
+          appendLog({
+            level: "warn",
+            label: "cancelled",
+            message: response.message || "Generation cancelled.",
           });
           break;
         case "languages":
@@ -475,6 +521,8 @@ function App() {
     });
     resetProcessingLog("Session initialized.");
     setErrorMsg("");
+    setInfoMsg("");
+    setIsStopping(false);
 
     try {
       const command: GenerateCommand = {
@@ -491,7 +539,31 @@ function App() {
         diarization_enabled: diarizationEnabled,
         beam_size: beamSize,
         vad_filter: vadFilter,
+        honorifics,
+        qa_pass: qaPass,
+        shot_snap: shotSnap,
       };
+      if (initialPrompt.trim()) {
+        command.initial_prompt = initialPrompt.trim();
+      }
+      if (translationEngine !== "backend") {
+        command.translation_engine = translationEngine;
+      }
+      if (translationEngine === "deepl" && deeplApiKey.trim()) {
+        command.deepl_api_key = deeplApiKey.trim();
+      }
+      if (translationEngine === "llm") {
+        if (llmBaseUrl.trim()) command.llm_base_url = llmBaseUrl.trim();
+        if (llmModel.trim()) command.llm_model = llmModel.trim();
+        if (llmApiKey.trim()) command.llm_api_key = llmApiKey.trim();
+      }
+      if (synopsis.trim()) {
+        command.synopsis = synopsis.trim();
+      }
+      const glossary = parseGlossary(glossaryText);
+      if (glossary.length > 0) {
+        command.glossary = glossary;
+      }
       await sendCommand(command);
     } catch (err) {
       setErrorMsg(`Failed to send command: ${err}`);
@@ -500,16 +572,27 @@ function App() {
   }, [
     beamSize,
     connected,
+    deeplApiKey,
     diarizationEnabled,
     effectiveTranslationBackend,
     format,
+    glossaryText,
+    honorifics,
+    initialPrompt,
+    llmApiKey,
+    llmBaseUrl,
+    llmModel,
     model,
+    qaPass,
     resetProcessingLog,
     selectedASRBackend,
     selectedASRModelId,
     sendCommand,
+    shotSnap,
     sourceLang,
+    synopsis,
     targetLang,
+    translationEngine,
     vadFilter,
     videoPath,
   ]);
@@ -519,6 +602,7 @@ function App() {
     setVideoPath(null);
     setCompletion(null);
     setErrorMsg("");
+    setInfoMsg("");
     setProcessing(createInitialProcessingState());
     resetProcessingLog();
   }, [resetProcessingLog]);
@@ -531,29 +615,22 @@ function App() {
     setIsStopping(true);
     setProcessing((current) => ({
       ...current,
-      message: "Stopping processing...",
+      message: "Cancelling processing...",
     }));
     appendLog({
       level: "warn",
-      label: "stop",
-      message: "Stop requested by user. Waiting for shutdown...",
+      label: "cancel",
+      message: "Cancellation requested. Waiting for the active operation to stop...",
     });
 
     try {
-      await disconnect();
-      setAppState("idle");
-      setCompletion(null);
-      setErrorMsg("");
-      setProcessing(createInitialProcessingState());
-      resetProcessingLog();
-      await connect();
+      await sendCommand({ command: "cancel" });
     } catch (err) {
-      setErrorMsg(`Failed to stop processing: ${err}`);
-      setAppState("error");
-    } finally {
       setIsStopping(false);
+      setErrorMsg(`Failed to cancel processing: ${err}`);
+      setAppState("error");
     }
-  }, [appState, appendLog, connect, disconnect, isStopping, resetProcessingLog]);
+  }, [appState, appendLog, isStopping, sendCommand]);
 
   const handleInstall = useCallback(
     async (actionId: string) => {
@@ -712,6 +789,18 @@ function App() {
                 >
                   Gemma
                 </Badge>
+                <Badge
+                  variant={systemInfo.ffmpeg ? "default" : "outline"}
+                  className="text-[10px]"
+                >
+                  FFmpeg
+                </Badge>
+                <Badge
+                  variant={systemInfo.vadModel ? "default" : "outline"}
+                  className="text-[10px]"
+                >
+                  VAD
+                </Badge>
               </div>
             )}
             <div
@@ -742,6 +831,8 @@ function App() {
             selectedASRBackend={completion.selectedASRBackend}
             diarizationRan={completion.diarizationRan}
             speakerCount={completion.speakerCount}
+            qc={completion.qc}
+            preview={completion.preview}
             onReset={handleReset}
           />
         ) : isProcessing ? (
@@ -832,8 +923,30 @@ function App() {
             <SettingsPanel
               beamSize={beamSize}
               vadFilter={vadFilter}
+              initialPrompt={initialPrompt}
+              translationEngine={translationEngine}
+              deeplApiKey={deeplApiKey}
+              llmBaseUrl={llmBaseUrl}
+              llmModel={llmModel}
+              llmApiKey={llmApiKey}
+              synopsis={synopsis}
+              glossaryText={glossaryText}
+              honorifics={honorifics}
+              qaPass={qaPass}
+              shotSnap={shotSnap}
               onBeamSizeChange={setBeamSize}
               onVadFilterChange={setVadFilter}
+              onInitialPromptChange={setInitialPrompt}
+              onTranslationEngineChange={setTranslationEngine}
+              onDeeplApiKeyChange={setDeeplApiKey}
+              onLlmBaseUrlChange={setLlmBaseUrl}
+              onLlmModelChange={setLlmModel}
+              onLlmApiKeyChange={setLlmApiKey}
+              onSynopsisChange={setSynopsis}
+              onGlossaryTextChange={setGlossaryText}
+              onHonorificsChange={setHonorifics}
+              onQaPassChange={setQaPass}
+              onShotSnapChange={setShotSnap}
               disabled={isProcessing}
             />
 
@@ -854,6 +967,19 @@ function App() {
                     Dismiss
                   </button>
                 </div>
+              </div>
+            )}
+
+            {infoMsg && (
+              <div className="border border-border bg-muted/30 p-4">
+                <p className="text-xs text-muted-foreground">{infoMsg}</p>
+                <button
+                  type="button"
+                  onClick={() => setInfoMsg("")}
+                  className="mt-2 text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  Dismiss
+                </button>
               </div>
             )}
 

@@ -34,12 +34,38 @@ The repo still contains compatibility paths for:
 
 Those are optional/manual backends, not the primary open-source quickstart path.
 
+### Quality and timing pipeline
+
+All ASR paths now share the same subtitle-quality stages:
+
+- FFmpeg extracts a canonical 16 kHz mono WAV and detects scene cuts.
+- Whisper.cpp uses `verbose_json` seconds-based segment and word timestamps, with centisecond fallback for legacy forks.
+- Cue normalization applies duration, reading-speed, line-length, overlap, frame-grid, and optional shot-snap rules.
+- Output includes SRT/ASS/VTT plus a sibling `<output>.qc.json` report and an in-app cue preview.
+- Active jobs can be cancelled from the processing view.
+
+The selected NLLB or Gemma backend remains the default translation path. Advanced settings can instead use LibreTranslate, DeepL, or an OpenAI-compatible LLM with sliding-window context, synopsis, glossary, honorific handling, and an optional QA pass. Environment fallbacks are `SUBGEN_LLM_BASE_URL`, `SUBGEN_LLM_MODEL`, `SUBGEN_LLM_API_KEY`, `SUBGEN_DEEPL_API_KEY`, and `OPENAI_API_KEY`.
+
+For the optional whisper.cpp backend, use whisper.cpp v1.9.3 or newer and place assets under:
+
+```text
+services/whisper-server/
+  whisper-server.exe
+  models/
+    ggml-large-v3.bin
+    ggml-large-v3-turbo.bin
+    ggml-large-v3-turbo-q5_0.bin
+    ggml-silero-v6.2.0.bin
+```
+
+The Silero model enables request-level VAD. When a compatible model preset exists, the sidecar starts whisper.cpp with DTW token timestamps and flash attention disabled.
+
 ## Repository Layout
 
 ```text
 src/                React UI and client-side state
 src-tauri/          Tauri host, capabilities, packaging config
-go-sidecar/         Go orchestration pipeline and subtitle writer
+go-sidecar/         Go orchestration, timing, translation, QC, and subtitle output
 python-backend/     Canonical Python ML backend
 services/           Optional local service/model staging roots
 public/             Static frontend assets
@@ -51,10 +77,9 @@ public/             Static frontend assets
 - Rust 1.88.0+ via `rustup`
 - Go 1.26.1 on `PATH`
 - A Python 3 runtime on `PATH` for the ML backend
+- FFmpeg on `PATH` for audio extraction and scene-cut detection
 
 Recommended:
-
-- FFmpeg on `PATH` for video transcription workflows
 - CUDA-capable environment if you want GPU acceleration
 
 Optional:

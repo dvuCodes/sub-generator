@@ -109,7 +109,8 @@ func (p *Pipeline) RunContext(ctx context.Context, cmd Command) {
 	var engine TranslateEngine
 	targetLang := derefString(cmd.TargetLang)
 	translating := targetLang != "" && selectedTranslationBackend != "none"
-	useContextualEngine := targetLang != "" && (strings.TrimSpace(cmd.TranslationEngine) != "" || hasLLMConfig(cmd) || hasDeepLConfig(cmd))
+	useContextualEngine := targetLang != "" && ((strings.TrimSpace(cmd.TranslationEngine) != "" && !strings.EqualFold(cmd.TranslationEngine, "backend")) ||
+		hasLLMConfig(cmd) || hasDeepLConfig(cmd))
 	if useContextualEngine {
 		engine, err = selectTranslationEngine(cmd, p.svcManager.config.LibreTranslatePort)
 		if err != nil {
@@ -123,6 +124,10 @@ func (p *Pipeline) RunContext(ctx context.Context, cmd Command) {
 	sendStage("preparing", "Extracting audio track...")
 	wavPath, audioDuration, cleanupAudio, err := p.extractAudio(ctx, ffmpegPath, cmd.InputVideo)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			sendCancelled()
+			return
+		}
 		sendError("Audio extraction failed", err.Error())
 		return
 	}
@@ -136,6 +141,11 @@ func (p *Pipeline) RunContext(ctx context.Context, cmd Command) {
 		if len(shotTimes) > 0 {
 			sendProgress("preparing", 100, fmt.Sprintf("Found %d scene cuts", len(shotTimes)))
 		}
+	}
+
+	if ctx.Err() != nil {
+		sendCancelled()
+		return
 	}
 
 	// Step 4: Transcribe with heartbeats so the UI stays live.
