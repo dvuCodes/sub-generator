@@ -229,6 +229,12 @@ func maxUnitsPerCue(opts TimingOptions) float64 {
 }
 
 // splitCueOnce divides one cue into two at the best available boundary.
+//
+// NOTE: both children inherit the parent's SourceText verbatim. This is
+// correct today because post-translation normalization runs AFTER RefinePass
+// (so QA never sees split children); if pipeline ordering ever changes, both
+// fragments would pair their short targets with the full-length parent
+// source in QA prompts - revisit then.
 func splitCueOnce(seg Segment, opts TimingOptions) (Segment, Segment, bool) {
 	runes := []rune(seg.Text)
 	if len(runes) < 8 {

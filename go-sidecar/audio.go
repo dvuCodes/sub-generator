@@ -114,11 +114,14 @@ func DetectShotChanges(ctx context.Context, ffmpegPath, input string) ([]float64
 	_ = tmp.Close()
 	defer func() { _ = os.Remove(metaFile) }()
 
-	// ffmpeg filtergraph option values split on ':' and treat '\' as an
-	// escape character. Quoting the value handles Windows drive colons,
-	// backslashes and spaces in one step; embedded quotes are doubled per
-	// ffmpeg's quoting rules.
-	filterValue := "'" + strings.ReplaceAll(filepath.ToSlash(metaFile), "'", "''") + "'"
+	// ffmpeg parses filtergraph values in two levels: the graph parser strips
+	// single quotes first, then option splitting breaks on ':'. A Windows
+	// path therefore needs BOTH a quoted section AND an escaped drive colon
+	// ('C\:/Users/...') - either alone fails against real ffmpeg builds
+	// (verified empirically against ffmpeg 8.1). os.CreateTemp names never
+	// contain quotes or spaces beyond what quoting already covers.
+	slashed := strings.ReplaceAll(filepath.ToSlash(metaFile), ":", `\:`)
+	filterValue := "'" + slashed + "'"
 
 	cmd := exec.CommandContext(
 		ctx,
