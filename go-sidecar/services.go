@@ -2,10 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,24 +52,35 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 	currentModel := sm.currentWhisperModelPath
 	sm.mu.Unlock()
 
-	if currentProcess != nil {
-		if currentModel == whisperModel && sm.IsWhisperRunning() {
+	if currentProcess != nil && sm.IsWhisperRunning() {
+		if currentModel == whisperModel {
+			return nil
+		}
+		// Same server process can hot-swap models without a restart.
+		if err := sm.LoadWhisperModel(whisperModel); err == nil {
 			return nil
 		}
 		sm.StopWhisperServer()
+	} else if currentProcess != nil {
+		sm.StopWhisperServer()
 	} else if sm.IsWhisperRunning() {
-		return nil
+		if currentModel == "" || currentModel == whisperModel {
+			sm.mu.Lock()
+			sm.currentWhisperModelPath = whisperModel
+			sm.mu.Unlock()
+			return nil
+		}
+		if err := sm.LoadWhisperModel(whisperModel); err == nil {
+			return nil
+		}
 	}
 
 	if err := validateWhisperStartup(whisperBinary, whisperModel); err != nil {
 		return err
 	}
 
-	cmd := exec.Command(
-		whisperBinary,
-		"-m", whisperModel,
-		"--port", fmt.Sprintf("%d", sm.config.WhisperPort),
-	)
+	cmd := exec.Command(whisperBinary, buildWhisperServerArgs(whisperModel, sm.config)...)
+
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
@@ -83,6 +98,93 @@ func (sm *ServiceManager) StartWhisperServer(modelSize string) error {
 		sm.StopWhisperServer()
 		return fmt.Errorf("whisper-server failed to start using %q with model %q: %w", whisperBinary, whisperModel, err)
 	}
+
+	return nil
+}
+
+// buildWhisperServerArgs constructs the whisper.cpp server startup flags.
+//
+//   - VAD (-vm silero model) physically removes silence where Japanese
+//     hallucination loops live, and >= v1.9.2 maps timestamps correctly.
+//   - --dtw enables token-level timestamps for precise cue splitting;
+//     DTW is incompatible with flash attention, hence -nfa.
+func buildWhisperServerArgs(modelPath string, config ServiceConfig) []string {
+	threads := runtime.NumCPU()
+	if threads > 8 {
+		threads = 8
+	}
+	if threads < 1 {
+		threads = 1
+	}
+
+	args := []string{
+		"-m", modelPath,
+		"--host", loopbackHost,
+		"--port", fmt.Sprintf("%d", config.WhisperPort),
+		"-t", strconv.Itoa(threads),
+	}
+
+	if vadModel := ResolveVADModel(config.SearchRoots); vadModel != "" {
+		args = append(args, "-vm", vadModel)
+	} else {
+		fmt.Fprintln(os.Stderr, "[subgen] no Silero VAD model found (services/whisper-server/models/ggml-silero-*.bin); VAD filtering disabled")
+	}
+
+	if preset := dtwPresetForModel(filepath.Base(modelPath)); preset != "" {
+		args = append(args, "-nfa", "--dtw", preset)
+	}
+
+	return args
+}
+
+// LoadWhisperModel hot-swaps the model on a running server via POST /load.
+// The request carries the model *path*, which is valid because both
+// processes run on the same machine.
+func (sm *ServiceManager) LoadWhisperModel(modelPath string) error {
+	if info, err := os.Stat(modelPath); err != nil || info.IsDir() {
+		return fmt.Errorf("whisper model not found at %q", modelPath)
+	}
+
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+	go func() {
+		var writeErr error
+		defer func() {
+			if writeErr != nil {
+				_ = pw.CloseWithError(writeErr)
+				return
+			}
+			_ = pw.Close()
+		}()
+		if err := writer.WriteField("model", modelPath); err != nil {
+			writeErr = err
+			return
+		}
+		writeErr = writer.Close()
+	}()
+
+	req, err := http.NewRequest(http.MethodPost, localServiceURL(sm.config.WhisperPort, "/load"), pr)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("model load request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("model load returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	sm.mu.Lock()
+	sm.currentWhisperModelPath = modelPath
+	sm.config.WhisperModelPath = modelPath
+	sm.mu.Unlock()
 
 	return nil
 }
@@ -166,6 +268,12 @@ func (sm *ServiceManager) LibreTranslatePort() int {
 	return sm.config.LibreTranslatePort
 }
 
+// HasVADModel reports whether a Silero VAD model is available, which is
+// required for the server's per-request vad=true toggle to work.
+func (sm *ServiceManager) HasVADModel() bool {
+	return ResolveVADModel(sm.config.SearchRoots) != ""
+}
+
 func isServiceHealthy(url string) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(url)
@@ -209,7 +317,10 @@ func validateWhisperStartup(binaryPath, modelPath string) error {
 		return err
 	}
 	if info, err := os.Stat(modelPath); err != nil || info.IsDir() {
-		return fmt.Errorf("whisper model not found at %q", modelPath)
+		return fmt.Errorf(
+			"whisper model not found at %q - download it from https://huggingface.co/ggerganov/whisper.cpp and place it under services/whisper-server/models/",
+			modelPath,
+		)
 	}
 	return nil
 }

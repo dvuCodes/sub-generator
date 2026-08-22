@@ -2,36 +2,114 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
+	"strings"
 	"time"
 )
 
-type Translator struct {
-	baseURL    string
-	client     *http.Client
-	maxWorkers int
+// LibreEngine translates via a local LibreTranslate server. Requests are
+// batched: LibreTranslate accepts string arrays for q and mirrors them back
+// in translatedText.
+type LibreEngine struct {
+	baseURL   string
+	client    *http.Client
+	batchSize int
 }
 
-func NewTranslator(port int) *Translator {
-	return &Translator{
-		baseURL:    localServiceBaseURL(port),
-		client:     &http.Client{Timeout: 30 * time.Second},
-		maxWorkers: 4, // Concurrent translation requests
+func NewLibreEngine(port int) *LibreEngine {
+	return &LibreEngine{
+		baseURL:   localServiceBaseURL(port),
+		client:    &http.Client{Timeout: 120 * time.Second},
+		batchSize: 16,
 	}
 }
 
-type translateRequest struct {
-	Q      string `json:"q"`
-	Source string `json:"source"`
-	Target string `json:"target"`
+func (e *LibreEngine) Name() string   { return "libretranslate" }
+func (e *LibreEngine) BatchSize() int { return e.batchSize }
+
+type libreTranslateRequest struct {
+	Q      []string `json:"q"`
+	Source string   `json:"source"`
+	Target string   `json:"target"`
+	Format string   `json:"format,omitempty"`
 }
 
-type translateResponse struct {
-	TranslatedText string `json:"translatedText"`
+type libreTranslateResponse struct {
+	TranslatedText json.RawMessage `json:"translatedText"`
+}
+
+func (e *LibreEngine) TranslateBatch(ctx context.Context, texts []string, req TranslateRequest) ([]string, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+
+	body, err := json.Marshal(libreTranslateRequest{
+		Q:      texts,
+		Source: normalizeLangCode(req.SourceLang),
+		Target: normalizeLangCode(req.TargetLang),
+		Format: "text",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/translate", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := e.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("translation request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("translation returned status %d: %s", resp.StatusCode, truncateForLog(string(respBody), 200))
+	}
+
+	var result libreTranslateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse translation response: %w", err)
+	}
+
+	return decodeTranslatedText(result.TranslatedText, len(texts))
+}
+
+// decodeTranslatedText handles both array replies (batch requests) and
+// single-string replies (older servers).
+func decodeTranslatedText(raw json.RawMessage, want int) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("empty translation response")
+	}
+
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		if want == 1 {
+			return []string{single}, nil
+		}
+		// Some servers join batch results with newlines.
+		parts := strings.Split(strings.ReplaceAll(single, "\r\n", "\n"), "\n")
+		if len(parts) == want {
+			return parts, nil
+		}
+		return nil, fmt.Errorf("expected %d translations, got %d lines in single string", want, len(parts))
+	}
+
+	var list []string
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("unparsable translatedText: %w", err)
+	}
+	if len(list) != want {
+		return nil, fmt.Errorf("expected %d translations, got %d", want, len(list))
+	}
+	return list, nil
 }
 
 type libreTranslateLanguage struct {
@@ -40,101 +118,9 @@ type libreTranslateLanguage struct {
 	Targets []string `json:"targets"`
 }
 
-func (t *Translator) Translate(text, sourceLang, targetLang string) (string, error) {
-	reqBody := translateRequest{
-		Q:      text,
-		Source: sourceLang,
-		Target: targetLang,
-	}
-
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	resp, err := t.client.Post(
-		t.baseURL+"/translate",
-		"application/json",
-		bytes.NewReader(bodyBytes),
-	)
-	if err != nil {
-		return "", fmt.Errorf("translation request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("translation returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result translateResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to parse translation response: %w", err)
-	}
-
-	return result.TranslatedText, nil
-}
-
-func (t *Translator) TranslateSegments(segments []Segment, sourceLang, targetLang string, onProgress func(current, total int)) ([]Segment, error) {
-	total := len(segments)
-	translated := make([]Segment, total)
-
-	// Use a semaphore pattern for concurrent translations
-	sem := make(chan struct{}, t.maxWorkers)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	var firstErr error
-	completed := 0
-
-	for i, seg := range segments {
-		wg.Add(1)
-		go func(idx int, s Segment) {
-			defer wg.Done()
-			sem <- struct{}{}        // acquire
-			defer func() { <-sem }() // release
-
-			// Check for prior error
-			mu.Lock()
-			if firstErr != nil {
-				mu.Unlock()
-				return
-			}
-			mu.Unlock()
-
-			result, err := t.Translate(s.Text, sourceLang, targetLang)
-
-			mu.Lock()
-			defer mu.Unlock()
-
-			if err != nil && firstErr == nil {
-				firstErr = fmt.Errorf("segment %d: %w", idx, err)
-				return
-			}
-
-			translated[idx] = Segment{
-				Start: s.Start,
-				End:   s.End,
-				Text:  result,
-			}
-			completed++
-
-			if onProgress != nil {
-				onProgress(completed, total)
-			}
-		}(i, seg)
-	}
-
-	wg.Wait()
-
-	if firstErr != nil {
-		return nil, firstErr
-	}
-
-	return translated, nil
-}
-
-func (t *Translator) ListLanguages() ([]LanguagePair, error) {
-	resp, err := t.client.Get(t.baseURL + "/languages")
+// ListLanguages returns the installed language pair matrix from LibreTranslate.
+func (e *LibreEngine) ListLanguages() ([]LanguagePair, error) {
+	resp, err := e.client.Get(e.baseURL + "/languages")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list languages: %w", err)
 	}
@@ -186,6 +172,31 @@ func (t *Translator) ListLanguages() ([]LanguagePair, error) {
 	return pairs, nil
 }
 
+func (e *LibreEngine) IsHealthy() bool {
+	return isServiceHealthy(e.baseURL + "/languages")
+}
+
+func normalizeLangCode(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" || strings.EqualFold(code, "auto") {
+		return "auto"
+	}
+	return code
+}
+
+// Translator is kept as the legacy façade used by main.go for language listing.
+type Translator struct {
+	inner *LibreEngine
+}
+
+func NewTranslator(port int) *Translator {
+	return &Translator{inner: NewLibreEngine(port)}
+}
+
+func (t *Translator) ListLanguages() ([]LanguagePair, error) {
+	return t.inner.ListLanguages()
+}
+
 func (t *Translator) IsHealthy() bool {
-	return isServiceHealthy(t.baseURL + "/languages")
+	return t.inner.IsHealthy()
 }

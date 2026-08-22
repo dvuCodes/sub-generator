@@ -15,7 +15,7 @@ func TestListLanguagesUsesDeclaredTargets(t *testing.T) {
 	}))
 	defer server.Close()
 
-	translator := &Translator{
+	translator := &LibreEngine{
 		baseURL: server.URL,
 		client:  server.Client(),
 	}
