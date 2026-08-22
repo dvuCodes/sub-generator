@@ -115,9 +115,10 @@ func DetectShotChanges(ctx context.Context, ffmpegPath, input string) ([]float64
 	defer func() { _ = os.Remove(metaFile) }()
 
 	// ffmpeg filtergraph option values split on ':' and treat '\' as an
-	// escape character, so Windows paths must be slash-normalized and their
-	// drive colon escaped.
-	filterValue := strings.ReplaceAll(filepath.ToSlash(metaFile), ":", `\:`)
+	// escape character. Quoting the value handles Windows drive colons,
+	// backslashes and spaces in one step; embedded quotes are doubled per
+	// ffmpeg's quoting rules.
+	filterValue := "'" + strings.ReplaceAll(filepath.ToSlash(metaFile), "'", "''") + "'"
 
 	cmd := exec.CommandContext(
 		ctx,

@@ -155,12 +155,16 @@ func mergeFragments(cues []Segment, opts TimingOptions) []Segment {
 
 			if gap >= -timeEpsilon && gap <= mergeGapMax &&
 				combinedDuration <= opts.MaxDur &&
-				combinedCPS <= opts.CPSTarget {
+				combinedCPS <= opts.CPSTarget &&
+				// Merging must not create a cue that cannot fit MaxLines.
+				combinedUnits <= maxUnitsPerCue(opts) {
 				joiner := " "
 				if opts.CJK {
 					joiner = ""
 				}
 				prev.Text += joiner + cue.Text
+				prev.SourceText += joiner + cue.SourceText
+				prev.Lines = nil
 				prev.End = cue.End
 				// Inherit the worst-case confidence signals.
 				prev.NoSpeechProb = math.Max(prev.NoSpeechProb, cue.NoSpeechProb)
@@ -210,7 +214,18 @@ func needsSplit(seg Segment, opts TimingOptions) bool {
 	}
 	// Line-count feasibility: text whose wrapped width cannot fit within
 	// MaxLines display lines must be split even at a legal reading speed.
-	return units > float64(opts.MaxCols*opts.MaxLines)
+	return units > maxUnitsPerCue(opts)
+}
+
+// maxUnitsPerCue converts the column budget into CueTextUnits, where each
+// wide CJK glyph counts once but occupies two columns (13 glyphs/line at 26
+// columns).
+func maxUnitsPerCue(opts TimingOptions) float64 {
+	colsPerLine := opts.MaxCols
+	if opts.CJK {
+		colsPerLine /= 2
+	}
+	return float64(colsPerLine * opts.MaxLines)
 }
 
 // splitCueOnce divides one cue into two at the best available boundary.
@@ -236,16 +251,22 @@ func splitCueOnce(seg Segment, opts TimingOptions) (Segment, Segment, bool) {
 	leftWords, rightWords := partitionWords(seg.Words, boundaryTime)
 
 	left := Segment{
-		Start: seg.Start,
-		End:   clampTime(boundaryTime, seg.Start+minChunkTime(), seg.End),
-		Text:  leftText,
-		Words: leftWords,
+		Start:        seg.Start,
+		End:          clampTime(boundaryTime, seg.Start+minChunkTime(), seg.End),
+		Text:         leftText,
+		SourceText:   seg.SourceText,
+		Words:        leftWords,
+		AvgLogprob:   seg.AvgLogprob,
+		NoSpeechProb: seg.NoSpeechProb,
 	}
 	right := Segment{
-		Start: left.End,
-		End:   seg.End,
-		Text:  rightText,
-		Words: rightWords,
+		Start:        left.End,
+		End:          seg.End,
+		Text:         rightText,
+		SourceText:   seg.SourceText,
+		Words:        rightWords,
+		AvgLogprob:   seg.AvgLogprob,
+		NoSpeechProb: seg.NoSpeechProb,
 	}
 
 	if left.End-left.Start < timeEpsilon || right.End-right.Start < timeEpsilon {
@@ -499,13 +520,19 @@ func snapToShots(cues []Segment, opts TimingOptions) []Segment {
 
 			// Out-time just before a cut.
 			if d := cut - cue.End; d > 0 && d <= opts.SnapWindow {
-				newEnd := cut - outBeforeCut
-				if i+1 < len(cues) {
-					newEnd = math.Min(newEnd, cues[i+1].Start-opts.Gap)
-				}
-				if newEnd > cue.End && newEnd-cue.Start >= minSnapDur {
-					cue.End = newEnd
-					continue
+				maxAllowed := cue.Start + opts.MaxDur
+				if maxAllowed > cue.End {
+					// Skip when the cue already exceeds MaxDur: extending
+					// would deepen the violation rather than fix anything.
+					newEnd := cut - outBeforeCut
+					if i+1 < len(cues) {
+						newEnd = math.Min(newEnd, cues[i+1].Start-opts.Gap)
+					}
+					newEnd = math.Min(newEnd, maxAllowed)
+					if newEnd > cue.End && newEnd-cue.Start >= minSnapDur {
+						cue.End = newEnd
+						continue
+					}
 				}
 			}
 

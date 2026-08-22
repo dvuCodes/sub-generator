@@ -175,7 +175,7 @@ func TestSnapToShotsDoesNotOverlapFollowingCue(t *testing.T) {
 	// Without the next-cue clamp, the end would snap to 10.4-2f=10.317 which
 	// violates the minimum gap against B at 10.30.
 	cues := snapToShots([]Segment{
-		seg(0.0, 9.95, "cue whose end sits inside the snap window"),
+		seg(8.0, 9.95, "cue whose end sits inside the snap window"),
 		seg(10.30, 15.0, "next"),
 	}, opts)
 
@@ -185,6 +185,20 @@ func TestSnapToShotsDoesNotOverlapFollowingCue(t *testing.T) {
 	if cues[0].End > cues[1].Start-opts.Gap+timeEpsilon {
 		t.Fatalf("end-snap created overlap/gap violation: end=%v nextStart=%v",
 			cues[0].End, cues[1].Start)
+	}
+}
+
+func TestSnapToShotsDoesNotExtendOverMaxDurationCue(t *testing.T) {
+	opts := NewTimingOptions("en", 24)
+	opts.ShotTimes = []float64{10.4}
+	// A cue already longer than MaxDur (unsplittable leftover) must not be
+	// extended further by snapping.
+	cues := snapToShots([]Segment{
+		seg(0.0, 9.95, "pathologically long leftover"),
+	}, opts)
+
+	if !almostEqual(cues[0].End, 9.95) {
+		t.Fatalf("end = %v, want untouched 9.95", cues[0].End)
 	}
 }
 
@@ -239,6 +253,31 @@ func TestComputeQCReportsViolations(t *testing.T) {
 	if report.CueCount != 4 {
 		t.Fatalf("cue count = %d, want 4", report.CueCount)
 	}
+}
+
+func TestNeedsSplitCJKLineBudget(t *testing.T) {
+	opts := NewTimingOptions("ja", 24)
+	// 40 glyphs over 7s = 5.7 cps (legal) but only fits 26 glyphs per cue:
+	// the line-budget clause must force a split.
+	glyphs := stringsRepeatJA(40)
+	long := Segment{Start: 0, End: 7, Text: glyphs}
+	if !needsSplit(long, opts) {
+		t.Fatalf("40-glyph JA cue escaped the line budget: units=%v budget=%v",
+			cueUnits(long, opts), maxUnitsPerCue(opts))
+	}
+
+	fits := Segment{Start: 0, End: 4, Text: stringsRepeatJA(20)} // 20 <= 26
+	if needsSplit(fits, opts) {
+		t.Fatalf("20-glyph JA cue wrongly flagged: units=%v", cueUnits(fits, opts))
+	}
+}
+
+func stringsRepeatJA(n int) string {
+	out := make([]rune, n)
+	for i := range out {
+		out[i] = 'あ'
+	}
+	return string(out)
 }
 
 func TestChooseSplitPositionHonorsKinsoku(t *testing.T) {

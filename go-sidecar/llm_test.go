@@ -33,6 +33,27 @@ func TestParseLLMTranslationsAcceptsPlainArray(t *testing.T) {
 	}
 }
 
+func TestDecodeLenientJSONPreservesCommaBracketInsideStrings(t *testing.T) {
+	// Valid JSON containing ",]" and ",}" inside string values must decode
+	// untouched - the strict path runs before any lenient rewriting.
+	var wrapper struct {
+		Translations []string `json:"translations"`
+	}
+	in := `{"translations":["He said \",] ok\"","list ends , } done"]}`
+	if err := decodeLenientJSON(in, &wrapper); err != nil {
+		t.Fatalf("decodeLenientJSON() error: %v", err)
+	}
+	if !eqStrings(wrapper.Translations, []string{`He said ",] ok"`, `list ends , } done`}) {
+		t.Fatalf("string content corrupted: %#v", wrapper.Translations)
+	}
+
+	// The lenient path itself must also be string-aware.
+	var list []string
+	if err := decodeLenientJSON(`["a",]`, &list); err != nil || !eqStrings(list, []string{"a"}) {
+		t.Fatalf("lenient trailing-comma handling failed: %#v, %v", list, err)
+	}
+}
+
 func TestParseLLMTranslationsRejectsWrongCountAndGarbage(t *testing.T) {
 	if _, err := parseLLMTranslations(`{"translations":["a"]}`, []string{"x", "y"}); err == nil {
 		t.Fatal("wrong count must error")
