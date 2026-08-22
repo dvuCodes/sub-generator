@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 type fakeLanguageService struct {
 	running     bool
@@ -60,6 +63,40 @@ func TestListAvailableLanguagesStartsLibreTranslateWhenIdle(t *testing.T) {
 	}
 	if len(langs) != 1 || langs[0] != (LanguagePair{Source: "en", Target: "ja"}) {
 		t.Fatalf("listAvailableLanguages() = %#v, want the fake pair", langs)
+	}
+}
+
+func TestListAvailableLanguagesReturnsEmptyWhenLibreTranslateIsUnavailable(t *testing.T) {
+	svc := &fakeLanguageService{
+		port:     5000,
+		startErr: errors.New(`libretranslate executable "libretranslate" not found in PATH`),
+	}
+
+	prevFactory := newLanguageLister
+	t.Cleanup(func() {
+		newLanguageLister = prevFactory
+	})
+
+	listerCalled := false
+	newLanguageLister = func(port int) languageLister {
+		listerCalled = true
+		return fakeLanguageLister{
+			pairs: []LanguagePair{{Source: "en", Target: "ja"}},
+		}
+	}
+
+	langs, err := listAvailableLanguages(svc)
+	if err != nil {
+		t.Fatalf("listAvailableLanguages() error = %v, want nil", err)
+	}
+	if !svc.startCalled {
+		t.Fatal("listAvailableLanguages() did not attempt to start LibreTranslate")
+	}
+	if listerCalled {
+		t.Fatal("listAvailableLanguages() should not query languages when LibreTranslate is unavailable")
+	}
+	if len(langs) != 0 {
+		t.Fatalf("listAvailableLanguages() = %#v, want an empty list", langs)
 	}
 }
 

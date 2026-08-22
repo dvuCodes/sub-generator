@@ -7,6 +7,7 @@ import { ProcessingView } from "./components/ProcessingView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { VideoDropzone } from "./components/VideoDropzone";
 import { useSidecar } from "./hooks/useSidecar";
+import { buildLanguageOptions } from "./lib/languages";
 import type {
   GenerateCommand,
   LanguagePair,
@@ -33,74 +34,6 @@ interface SystemInfoState {
   whisperServer: boolean;
   libretranslate: boolean;
   gpu: string;
-}
-
-const LANGUAGE_LABELS: Record<string, string> = {
-  auto: "Auto-detect",
-  ar: "Arabic",
-  cs: "Czech",
-  da: "Danish",
-  de: "German",
-  el: "Greek",
-  en: "English",
-  es: "Spanish",
-  fi: "Finnish",
-  fr: "French",
-  hi: "Hindi",
-  hu: "Hungarian",
-  id: "Indonesian",
-  it: "Italian",
-  ja: "Japanese",
-  ko: "Korean",
-  ms: "Malay",
-  nl: "Dutch",
-  pl: "Polish",
-  pt: "Portuguese",
-  ro: "Romanian",
-  ru: "Russian",
-  sv: "Swedish",
-  th: "Thai",
-  tl: "Filipino",
-  tr: "Turkish",
-  uk: "Ukrainian",
-  vi: "Vietnamese",
-  zh: "Chinese",
-};
-
-function labelForLanguage(code: string) {
-  return LANGUAGE_LABELS[code] ?? code.toUpperCase();
-}
-
-function buildLanguageOptions(pairs: LanguagePair[]) {
-  if (pairs.length === 0) {
-    return {
-      source: [{ code: "auto", name: labelForLanguage("auto") }],
-      target: [{ code: "", name: "No translation (transcribe only)" }],
-    };
-  }
-
-  const sourceCodes = new Set<string>(["auto"]);
-  const targetCodes = new Set<string>();
-
-  for (const pair of pairs) {
-    sourceCodes.add(pair.source);
-    targetCodes.add(pair.target);
-  }
-
-  const toOptions = (codes: Set<string>) =>
-    Array.from(codes)
-      .sort((left, right) =>
-        labelForLanguage(left).localeCompare(labelForLanguage(right))
-      )
-      .map((code) => ({ code, name: labelForLanguage(code) }));
-
-  return {
-    source: toOptions(sourceCodes),
-    target: [
-      { code: "", name: "No translation (transcribe only)" },
-      ...toOptions(targetCodes),
-    ],
-  };
 }
 
 function App() {
@@ -339,7 +272,9 @@ function App() {
 
             {appState === "error" && errorMsg && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
-                <p className="text-sm text-red-400">{errorMsg}</p>
+                <p className="whitespace-pre-line text-sm text-red-400">
+                  {errorMsg}
+                </p>
                 <button
                   onClick={() => setAppState("idle")}
                   className="mt-2 text-xs text-red-400 underline hover:text-red-300"

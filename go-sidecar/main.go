@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -108,11 +109,20 @@ func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) 
 func listAvailableLanguages(svcManager libreTranslateService) ([]LanguagePair, error) {
 	if !svcManager.IsLibreTranslateRunning() {
 		if err := svcManager.StartLibreTranslate(); err != nil {
+			if isMissingExecutableError(err) {
+				return []LanguagePair{}, nil
+			}
 			return nil, err
 		}
 	}
 
 	return newLanguageLister(svcManager.LibreTranslatePort()).ListLanguages()
+}
+
+func isMissingExecutableError(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "executable") &&
+		strings.Contains(message, "not found")
 }
 
 func sendJSON(v any) {
