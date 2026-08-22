@@ -48,12 +48,16 @@ export function OutputResult({
     }
   };
 
+  // Show every violation type the backend reported, so new QC categories are
+  // never silently hidden; known keys get friendly labels.
   const summaryEntries = qc
-    ? Object.entries(SUMMARY_LABELS).map(([key, label]) => ({
-        key,
-        label,
-        count: qc.summary[key] ?? 0,
-      }))
+    ? Object.entries(qc.summary)
+        .filter(([, count]) => count > 0)
+        .map(([key, count]) => ({
+          key,
+          label: SUMMARY_LABELS[key] ?? key.replaceAll("_", " "),
+          count,
+        }))
     : [];
   const totalViolations = summaryEntries.reduce(
     (sum, entry) => sum + entry.count,

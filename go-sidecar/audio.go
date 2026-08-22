@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -105,27 +106,45 @@ func ExtractAudio(ctx context.Context, ffmpegPath, input string) (string, float6
 // DetectShotChanges returns scene-cut timestamps using ffmpeg's select/metadata filters.
 // Failures are non-fatal: shot snapping is best-effort.
 func DetectShotChanges(ctx context.Context, ffmpegPath, input string) ([]float64, error) {
-	metaFile := filepath.Join(os.TempDir(), fmt.Sprintf("subgen-shots-%d.txt", os.Getpid()))
+	tmp, err := os.CreateTemp("", "subgen-shots-*.txt")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create scene metadata file: %w", err)
+	}
+	metaFile := tmp.Name()
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(metaFile) }()
+
+	// ffmpeg filtergraph option values split on ':' and treat '\' as an
+	// escape character, so Windows paths must be slash-normalized and their
+	// drive colon escaped.
+	filterValue := strings.ReplaceAll(filepath.ToSlash(metaFile), ":", `\:`)
 
 	cmd := exec.CommandContext(
 		ctx,
 		ffmpegPath,
 		"-hide_banner", "-nostdin",
 		"-i", input,
-		"-vf", fmt.Sprintf("select='gt(scene,%s)',metadata=print:file=%s", sceneThreshold, metaFile),
+		"-vf", fmt.Sprintf("select='gt(scene,%s)',metadata=print:file=%s", sceneThreshold, filterValue),
 		"-an", "-sn", "-dn",
 		"-f", "null", "-",
 	)
 
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("scene detection failed: %w", err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		return nil, fmt.Errorf("scene detection failed: %w: %s", err, truncateForLog(stderr.String(), 300))
 	}
 
 	data, err := os.ReadFile(metaFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed reading scene metadata: %w", err)
 	}
-	defer func() { _ = os.Remove(metaFile) }()
 
 	return parseShotTimes(data), nil
 }
@@ -148,6 +167,15 @@ func readWAVDuration(path string) float64 {
 		return 0
 	}
 	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return 0
+	}
+	fileSize := info.Size()
+	if fileSize < 44 {
+		return 0
+	}
 
 	r := bufio.NewReader(f)
 
@@ -175,8 +203,20 @@ func readWAVDuration(path string) float64 {
 				return 0
 			}
 			byteRate = binary.LittleEndian.Uint32(fmtChunk[8:12])
+			if byteRate == 0 {
+				return 0
+			}
 		case "data":
 			if byteRate == 0 {
+				return 0
+			}
+			// Streaming writers emit 0xFFFFFFFF for unknown sizes; trust
+			// nothing beyond the actual file length.
+			const unknownSize = uint32(0xFFFFFFFF)
+			if chunkSize == unknownSize || int64(chunkSize) > fileSize-44 {
+				chunkSize = uint32(fileSize - 44)
+			}
+			if chunkSize == 0 {
 				return 0
 			}
 			return float64(chunkSize) / float64(byteRate)

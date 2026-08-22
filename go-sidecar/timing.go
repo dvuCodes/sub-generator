@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Cue normalization engine.
@@ -90,7 +91,18 @@ func NormalizeCues(segments []Segment, opts TimingOptions, snapShots bool) []Seg
 	}
 	cues = roundFrames(cues, opts)
 
-	return cues
+	return dropSubFrameCues(cues)
+}
+
+// dropSubFrameCues removes cues too short to display on one video frame.
+func dropSubFrameCues(cues []Segment) []Segment {
+	out := make([]Segment, 0, len(cues))
+	for _, cue := range cues {
+		if cue.End-cue.Start >= timeEpsilon {
+			out = append(out, cue)
+		}
+	}
+	return out
 }
 
 func cloneSegment(s Segment) Segment {
@@ -150,6 +162,9 @@ func mergeFragments(cues []Segment, opts TimingOptions) []Segment {
 				}
 				prev.Text += joiner + cue.Text
 				prev.End = cue.End
+				// Inherit the worst-case confidence signals.
+				prev.NoSpeechProb = math.Max(prev.NoSpeechProb, cue.NoSpeechProb)
+				prev.AvgLogprob = math.Min(prev.AvgLogprob, cue.AvgLogprob)
 				prev.Words = append(prev.Words, cue.Words...)
 				continue
 			}
@@ -190,7 +205,12 @@ func needsSplit(seg Segment, opts TimingOptions) bool {
 	}
 	units := cueUnits(seg, opts)
 	cps := units / math.Max(duration, timeEpsilon)
-	return cps > opts.CPSTarget+timeEpsilon
+	if cps > opts.CPSTarget+timeEpsilon {
+		return true
+	}
+	// Line-count feasibility: text whose wrapped width cannot fit within
+	// MaxLines display lines must be split even at a legal reading speed.
+	return units > float64(opts.MaxCols*opts.MaxLines)
 }
 
 // splitCueOnce divides one cue into two at the best available boundary.
@@ -208,7 +228,7 @@ func splitCueOnce(seg Segment, opts TimingOptions) (Segment, Segment, bool) {
 	boundaryTime := charPosToTime(seg, pos)
 
 	leftText := strings.TrimSpace(string(runes[:pos]))
-	rightText := strings.TrimSpace(string(stripLeadingPunctuation(runes[pos:])))
+	rightText := strings.TrimSpace(string(runes[pos:]))
 	if leftText == "" || rightText == "" {
 		return seg, Segment{}, false
 	}
@@ -241,15 +261,20 @@ func minChunkTime() float64 { return minChunkSeconds }
 // chooseSplitPosition finds the best rune index for dividing text.
 // Lower priority values are better: sentence enders beat clause separators
 // beat whitespace beats arbitrary positions. Kinsoku-invalid breaks are
-// skipped entirely for CJK.
+// skipped entirely for CJK. The tightest middle band is searched first; good
+// structural breaks (priority <= 2) win immediately from the first band that
+// contains one, while arbitrary mid-word breaks (CJK priority 3) are only
+// used as a last resort across all bands.
 func chooseSplitPosition(runes []rune, cjk bool) int {
 	n := len(runes)
 	mid := n / 2
 
 	bands := [][2]int{{n * 30 / 100, n * 70 / 100}, {n / 5, n * 4 / 5}, {n / 10, n * 9 / 10}}
+
+	fallbackPos, fallbackPri, fallbackDist := -1, math.MaxInt, math.MaxInt
+
 	for _, band := range bands {
-		best, bestPri := -1, math.MaxInt
-		bestDist := math.MaxInt
+		best, bestPri, bestDist := -1, math.MaxInt, math.MaxInt
 		for pos := maxInt(band[0], 1); pos < minInt(band[1], n-1); pos++ {
 			pri, ok := breakPriority(runes, pos, cjk)
 			if !ok {
@@ -260,14 +285,17 @@ func chooseSplitPosition(runes []rune, cjk bool) int {
 				best, bestPri, bestDist = pos, pri, dist
 			}
 		}
-		if best != -1 && bestPri <= 2 {
+		if best == -1 {
+			continue
+		}
+		if bestPri <= 2 {
 			return best
 		}
-		if best != -1 {
-			return best
+		if bestPri < fallbackPri || (bestPri == fallbackPri && bestDist < fallbackDist) {
+			fallbackPos, fallbackPri, fallbackDist = best, bestPri, bestDist
 		}
 	}
-	return -1
+	return fallbackPos
 }
 
 var (
@@ -301,15 +329,7 @@ func breakPriority(runes []rune, pos int, cjk bool) (int, bool) {
 }
 
 func unicodeIsSpace(r rune) bool {
-	return r == ' ' || r == '\t' || r == '\u3000'
-}
-
-func stripLeadingPunctuation(runes []rune) []rune {
-	i := 0
-	for i < len(runes) && (unicodeIsSpace(runes[i]) || kinsokuCannotStart[runes[i]]) {
-		i++
-	}
-	return runes[i:]
+	return unicode.IsSpace(r)
 }
 
 // charPosToTime maps a character position onto the cue timeline using word
@@ -324,20 +344,29 @@ func charPosToTime(seg Segment, pos int) float64 {
 	words := seg.Words
 	if len(words) >= 2 {
 		offsets := locateWordOffsets(runes, words)
-		for i := 0; i < len(words)-1; i++ {
-			if offsets[i] < 0 {
+		for i := 0; i < len(words); i++ {
+			if offsets[i] < 0 || pos < offsets[i] {
 				continue
 			}
-			nextStartOffset := -1
+			wordEnd := offsets[i] + len([]rune(strings.TrimSpace(words[i].Text)))
+
+			nextStartOffset := len(runes)
 			for j := i + 1; j < len(words); j++ {
 				if offsets[j] >= 0 {
 					nextStartOffset = offsets[j]
 					break
 				}
 			}
-			wordEnd := offsets[i] + len([]rune(strings.TrimSpace(words[i].Text)))
-			if pos <= nextStartOffset || pos <= wordEnd+1 {
-				return clampTime((words[i].End+words[i+1].Start)/2, seg.Start, seg.End)
+
+			// Position falls within/at this word or in the separator gap
+			// between it and the next located word.
+			if pos <= nextStartOffset {
+				if i+1 < len(words) {
+					return clampTime((words[i].End+words[i+1].Start)/2, seg.Start, seg.End)
+				}
+				local := float64(pos-offsets[i]) / math.Max(float64(wordEnd-offsets[i]), 1)
+				t := words[i].Start + local*(words[i].End-words[i].Start)
+				return clampTime(t, seg.Start, seg.End)
 			}
 		}
 	}
@@ -455,12 +484,14 @@ func enforceGaps(cues []Segment, opts TimingOptions) []Segment {
 }
 
 // snapToShots snaps cue edges toward nearby scene cuts following Netflix
-// timing zones: ins land on the cut, outs land 2 frames before it.
+// timing zones: ins land on the cut, outs land 2 frames before it. Snapping
+// never creates overlaps or violates the minimum gap with adjacent cues.
 func snapToShots(cues []Segment, opts TimingOptions) []Segment {
 	shots := append([]float64(nil), opts.ShotTimes...)
 	sort.Float64s(shots)
 
 	outBeforeCut := framesGap / math.Max(opts.FrameRate, 1)
+	minSnapDur := opts.MinDur * 0.5
 
 	for _, cut := range shots {
 		for i := range cues {
@@ -469,7 +500,10 @@ func snapToShots(cues []Segment, opts TimingOptions) []Segment {
 			// Out-time just before a cut.
 			if d := cut - cue.End; d > 0 && d <= opts.SnapWindow {
 				newEnd := cut - outBeforeCut
-				if newEnd-cue.Start >= defaultMinDurationSec*0.5 {
+				if i+1 < len(cues) {
+					newEnd = math.Min(newEnd, cues[i+1].Start-opts.Gap)
+				}
+				if newEnd > cue.End && newEnd-cue.Start >= minSnapDur {
 					cue.End = newEnd
 					continue
 				}
@@ -483,7 +517,7 @@ func snapToShots(cues []Segment, opts TimingOptions) []Segment {
 					prevEnd = cues[i-1].End
 				}
 				newDur := cue.End - newStart
-				if newStart >= prevEnd+opts.Gap && newDur <= opts.MaxDur && newDur >= 0.4 {
+				if newStart >= prevEnd+opts.Gap && newDur <= opts.MaxDur && newDur >= opts.MinDur*0.5 {
 					cue.Start = newStart
 				}
 			}
@@ -492,12 +526,14 @@ func snapToShots(cues []Segment, opts TimingOptions) []Segment {
 	return cues
 }
 
-// roundFrames quantizes times to the video frame grid while preserving order.
+// roundFrames quantizes times to the video frame grid. Rounding can consume
+// part of an enforced gap, so minimum spacing is re-established afterwards.
 func roundFrames(cues []Segment, opts TimingOptions) []Segment {
 	if opts.FrameRate <= 0 {
 		return cues
 	}
 	fps := opts.FrameRate
+
 	for i := range cues {
 		cues[i].Start = math.Round(cues[i].Start*fps) / fps
 		cues[i].End = math.Round(cues[i].End*fps) / fps
@@ -505,15 +541,11 @@ func roundFrames(cues []Segment, opts TimingOptions) []Segment {
 			cues[i].End = cues[i].Start + 1/fps
 		}
 	}
-	for i := 0; i+1 < len(cues); i++ {
-		if cues[i].End > cues[i+1].Start {
-			cues[i].End = cues[i+1].Start
-			if cues[i].End < cues[i].Start {
-				cues[i].Start = cues[i].End
-			}
-		}
-	}
-	return cues
+
+	// Re-establish the minimum gap that rounding may have eroded, then drop
+	// anything left degenerate.
+	cues = enforceGaps(cues, opts)
+	return dropSubFrameCues(cues)
 }
 
 // --- QC ---
@@ -525,15 +557,22 @@ func ComputeQC(cues []Segment, opts TimingOptions) *QCReport {
 		return report
 	}
 
+	// Wrap-fallback language so CJK cues are measured against the correct
+	// column budget when Lines have not been finalized.
+	lang := cjkLangCode(opts.CJK)
+
+	const maxQCIssues = 200
+
 	report.CueCount = len(cues)
-	totalCPS := 0.0
+	totalUnits, totalDuration := 0.0, 0.0
 
 	for i := range cues {
 		cue := cues[i]
 		duration := cue.End - cue.Start
 		units := cueUnits(cue, opts)
 		cps := units / math.Max(duration, timeEpsilon)
-		totalCPS += cps
+		totalUnits += units
+		totalDuration += duration
 		if cps > report.MaxCPS {
 			report.MaxCPS = cps
 		}
@@ -556,7 +595,7 @@ func ComputeQC(cues []Segment, opts TimingOptions) *QCReport {
 
 		lines := cue.Lines
 		if len(lines) == 0 {
-			lines = WrapCueLines(cue.Text, nil)
+			lines = WrapCueLines(cue.Text, &lang)
 		}
 		for _, line := range lines {
 			if textWidth(line) > opts.MaxCols {
@@ -578,7 +617,9 @@ func ComputeQC(cues []Segment, opts TimingOptions) *QCReport {
 			}
 		}
 
-		if len(issues) > 0 {
+		// Summary counts stay authoritative for all cues; the issue list is
+		// capped to keep the QC payload bounded on pathological files.
+		if len(issues) > 0 && len(report.Issues) < maxQCIssues {
 			report.Issues = append(report.Issues, QCIssue{
 				Index:  i,
 				Start:  cue.Start,
@@ -588,7 +629,7 @@ func ComputeQC(cues []Segment, opts TimingOptions) *QCReport {
 		}
 	}
 
-	report.AvgCPS = totalCPS / float64(len(cues))
+	report.AvgCPS = totalUnits / math.Max(totalDuration, timeEpsilon)
 	if report.Summary == nil {
 		report.Summary = map[string]int{}
 	}
