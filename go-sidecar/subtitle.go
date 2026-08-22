@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,60 +17,57 @@ func NewSubtitleWriter() *SubtitleWriter {
 	return &SubtitleWriter{}
 }
 
+// Write persists normalized cues in the requested format. Line wrapping is
+// applied here (when not already present) so SRT, VTT and ASS output share
+// identical line breaks.
 func (sw *SubtitleWriter) Write(segments []Segment, outputPath string, format string, targetLang *string) error {
 	subs := astisub.NewSubtitles()
 
-	// Set metadata
 	subs.Metadata = &astisub.Metadata{
 		Title: "SubGen Generated Subtitles",
+		// Emit modern ASS (v4.00+) instead of legacy SSA v4.00 so players
+		// apply numpad alignment semantics and our style block correctly.
+		SSAScriptType: "v4.00+",
+		SSAPlayResX:   astiInt(384),
+		SSAPlayResY:   astiInt(288),
+		SSAWrapStyle:  "0", // smart wrapping, top line wider
 	}
 
-	// Apply CJK-friendly style for ASS format
-	if format == "ass" && targetLang != nil && isCJKLanguage(*targetLang) {
+	if format == "ass" {
 		subs.Styles = map[string]*astisub.Style{
-			"Default": {
-				ID: "Default",
-				InlineStyle: &astisub.StyleAttributes{
-					SSAFontName:       "Arial Unicode MS",
-					SSAFontSize:       astiFloat(24),
-					SSAPrimaryColour:  astiColor(255, 255, 255), // white
-					SSAOutlineColour:  astiColor(0, 0, 0),       // black outline
-					SSABackColour:     astiColor(0, 0, 0),       // black shadow
-					SSABold:           astiBool(false),
-					SSAOutline:        astiFloat(2),
-					SSAShadow:         astiFloat(1),
-					SSAAlignment:      astiInt(2), // bottom center
-					SSAMarginLeft:     astiInt(10),
-					SSAMarginRight:    astiInt(10),
-					SSAMarginVertical: astiInt(20),
-				},
-			},
+			"Default": buildDefaultStyle(targetLang),
 		}
 	}
 
-	// Convert segments to subtitle items
 	for _, seg := range segments {
-		item := &astisub.Item{
+		lines := seg.Lines
+		displayText := formatSegmentText(seg)
+		if len(lines) == 0 || seg.SpeakerLabel != "" {
+			lines = WrapCueLines(displayText, targetLang)
+		}
+		if len(lines) == 0 {
+			continue
+		}
+
+		lines2 := make([]astisub.Line, 0, len(lines))
+		for _, line := range lines {
+			lines2 = append(lines2, astisub.Line{
+				Items: []astisub.LineItem{{Text: line}},
+			})
+		}
+
+		subs.Items = append(subs.Items, &astisub.Item{
 			StartAt: time.Duration(seg.Start * float64(time.Second)),
 			EndAt:   time.Duration(seg.End * float64(time.Second)),
-			Lines: []astisub.Line{
-				{
-					Items: []astisub.LineItem{
-						{Text: formatSegmentText(seg)},
-					},
-				},
-			},
-		}
-		subs.Items = append(subs.Items, item)
+			Lines:   lines2,
+		})
 	}
 
-	// Ensure output directory exists
 	dir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Write file based on format
 	switch format {
 	case "srt":
 		return subs.Write(outputPath)
@@ -90,6 +88,43 @@ func (sw *SubtitleWriter) Write(segments []Segment, outputPath string, format st
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}
+}
+
+func buildDefaultStyle(targetLang *string) *astisub.Style {
+	fontName := "Arial"
+	if targetLang != nil && isCJKLanguage(*targetLang) {
+		fontName = "Arial Unicode MS"
+	}
+
+	return &astisub.Style{
+		ID: "Default",
+		InlineStyle: &astisub.StyleAttributes{
+			SSAFontName:       fontName,
+			SSAFontSize:       astiFloat(24),
+			SSAPrimaryColour:  astiColor(255, 255, 255),
+			SSAOutlineColour:  astiColor(0, 0, 0),
+			SSABackColour:     astiColor(0, 0, 0),
+			SSABold:           astiBool(false),
+			SSAOutline:        astiFloat(2),
+			SSAShadow:         astiFloat(1),
+			SSAAlignment:      astiInt(2), // bottom center
+			SSAMarginLeft:     astiInt(10),
+			SSAMarginRight:    astiInt(10),
+			SSAMarginVertical: astiInt(20),
+		},
+	}
+}
+
+// WriteQCReport persists the QC summary next to the subtitle file as JSON.
+func WriteQCReport(report *QCReport, outputPath string) error {
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal QC report: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create QC report directory: %w", err)
+	}
+	return os.WriteFile(outputPath, data, 0o644)
 }
 
 // DeriveOutputPath generates an output path from the input video path.
