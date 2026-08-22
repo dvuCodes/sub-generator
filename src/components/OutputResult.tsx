@@ -70,6 +70,22 @@ export function OutputResult({
       ? `${Math.round(secs)}s`
       : `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
 
+  // Show every violation type the backend reported, so new QC categories are
+  // never silently hidden; known keys get friendly labels.
+  const summaryEntries = qc
+    ? Object.entries(qc.summary)
+        .filter(([, count]) => count > 0)
+        .map(([key, count]) => ({
+          key,
+          label: QC_LABELS[key] ?? key.replaceAll("_", " "),
+          count,
+        }))
+    : [];
+  const totalViolations = summaryEntries.reduce(
+    (sum, entry) => sum + entry.count,
+    0
+  );
+
   return (
     <Card className="border-chart-1/30 bg-chart-1/5">
       <CardContent className="space-y-5">
@@ -169,16 +185,21 @@ export function OutputResult({
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                {Object.entries(QC_LABELS).map(([key, label]) => (
-                  <div key={key} className="flex justify-between text-[10px] text-muted-foreground">
-                    <span>{label}</span>
-                    <span className={qc.summary[key] ? "text-chart-4" : "text-muted-foreground"}>
-                      {qc.summary[key] ?? 0}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {totalViolations === 0 ? (
+                <p className="text-xs text-chart-1">No timing violations</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  {summaryEntries.map((entry) => (
+                    <div
+                      key={entry.key}
+                      className="flex justify-between text-[10px] text-muted-foreground"
+                    >
+                      <span>{entry.label}</span>
+                      <span className="text-chart-4">{entry.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}

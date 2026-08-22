@@ -86,8 +86,9 @@ func (e *LibreEngine) TranslateBatch(ctx context.Context, texts []string, req Tr
 	return decodeTranslatedText(result.TranslatedText, len(texts))
 }
 
-// decodeTranslatedText handles both array replies (batch requests) and
-// single-string replies (older servers).
+// decodeTranslatedText handles array replies (batch requests). A single
+// string reply is only accepted for single-text requests: splitting joined
+// strings by newline risks misassociating cues when counts coincide.
 func decodeTranslatedText(raw json.RawMessage, want int) ([]string, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty translation response")
@@ -98,12 +99,7 @@ func decodeTranslatedText(raw json.RawMessage, want int) ([]string, error) {
 		if want == 1 {
 			return []string{single}, nil
 		}
-		// Some servers join batch results with newlines.
-		parts := strings.Split(strings.ReplaceAll(single, "\r\n", "\n"), "\n")
-		if len(parts) == want {
-			return parts, nil
-		}
-		return nil, fmt.Errorf("expected %d translations, got %d lines in single string", want, len(parts))
+		return nil, fmt.Errorf("expected %d translations, got a single string", want)
 	}
 
 	var list []string
@@ -124,7 +120,15 @@ type libreTranslateLanguage struct {
 
 // ListLanguages returns the installed language pair matrix from LibreTranslate.
 func (e *LibreEngine) ListLanguages() ([]LanguagePair, error) {
-	resp, err := e.client.Get(e.baseURL + "/languages")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.baseURL+"/languages", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build languages request: %w", err)
+	}
+
+	resp, err := e.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list languages: %w", err)
 	}

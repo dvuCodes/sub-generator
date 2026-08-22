@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -90,8 +92,9 @@ func (e *LLMEngine) TranslateBatch(ctx context.Context, texts []string, req Tran
 
 	out := make([]string, len(texts))
 	pending := make([]int, 0, len(texts))
+	policy := policyHash(req)
 	for i, text := range texts {
-		if cached, ok := e.cache.get(text, req.SourceLang, req.TargetLang); ok {
+		if cached, ok := e.cache.get(text, req.SourceLang, req.TargetLang, policy); ok {
 			out[i] = cached
 		} else {
 			pending = append(pending, i)
@@ -112,7 +115,7 @@ func (e *LLMEngine) TranslateBatch(ctx context.Context, texts []string, req Tran
 	}
 	for i, idx := range pending {
 		out[idx] = fresh[i]
-		e.cache.put(texts[idx], req.SourceLang, req.TargetLang, fresh[i])
+		e.cache.put(texts[idx], req.SourceLang, req.TargetLang, policy, fresh[i])
 	}
 	e.cache.save()
 	return out, nil
@@ -178,52 +181,69 @@ func (e *LLMEngine) doChat(ctx context.Context, messages []llmChatMessage) (stri
 }
 
 // parseLLMTranslations extracts the translations array from model output,
-// tolerating code fences and surrounding prose.
+// tolerating code fences, surrounding prose and trailing commas.
 func parseLLMTranslations(content string, texts []string) ([]string, error) {
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
+	content = stripCodeFences(content)
 
-	type wrapper struct {
-		Translations []string `json:"translations"`
+	expect := func(got []string, err error) ([]string, error) {
+		if err != nil {
+			return nil, err
+		}
+		if len(got) != len(texts) {
+			return nil, fmt.Errorf("LLM returned %d translations for %d lines", len(got), len(texts))
+		}
+		return got, nil
 	}
 
-	var parsed wrapper
-	objStart := strings.Index(content, "{")
-	arrStart := strings.Index(content, "[")
-
-	if objStart >= 0 && (arrStart < 0 || objStart < arrStart) {
-		if err := json.Unmarshal([]byte(content[objStart:]), &parsed); err == nil {
-			if len(parsed.Translations) == len(texts) {
-				return parsed.Translations, nil
-			}
+	if objStart := strings.Index(content, "{"); objStart >= 0 {
+		var wrapper struct {
+			Translations []string `json:"translations"`
+		}
+		err := decodeLenientJSON(content[objStart:], &wrapper)
+		if out, perr := expect(wrapper.Translations, err); perr == nil {
+			return out, nil
+		} else if err == nil {
+			// Valid JSON but wrong cardinality - report it directly.
+			return nil, perr
 		}
 	}
-	if arrStart >= 0 {
+	if arrStart := strings.Index(content, "["); arrStart >= 0 {
 		var list []string
-		if end := strings.LastIndex(content, "]"); end > arrStart {
-			if err := json.Unmarshal([]byte(content[arrStart:end+1]), &list); err == nil && len(list) == len(texts) {
-				return list, nil
-			}
+		err := decodeLenientJSON(content[arrStart:], &list)
+		if out, perr := expect(list, err); perr == nil {
+			return out, nil
 		}
 	}
 
-	return nil, fmt.Errorf("LLM returned %d translations for %d lines", countTranslations(content), len(texts))
+	return nil, fmt.Errorf("LLM returned no parsable translations for %d lines: %q",
+		len(texts), truncateForLog(content, 160))
 }
 
-func countTranslations(content string) int {
-	var parsed struct {
-		Translations []string `json:"translations"`
-	}
-	objStart := strings.Index(content, "{")
-	if objStart >= 0 {
-		if err := json.Unmarshal([]byte(content[objStart:]), &parsed); err == nil {
-			return len(parsed.Translations)
+// stripCodeFences removes markdown fences around a JSON payload.
+func stripCodeFences(content string) string {
+	content = strings.TrimSpace(content)
+	for _, open := range []string{"```json", "```JSON", "```"} {
+		if strings.HasPrefix(content, open) {
+			content = content[len(open):]
+			break
 		}
 	}
-	return -1
+	content = strings.TrimSuffix(strings.TrimSpace(content), "```")
+	return strings.TrimSpace(content)
 }
+
+// decodeLenientJSON decodes the first JSON value from s, tolerating trailing
+// prose after the value and trailing commas inside arrays/objects.
+func decodeLenientJSON(s string, v any) error {
+	s = trailingCommaRe.ReplaceAllString(s, "$1")
+	dec := json.NewDecoder(strings.NewReader(s))
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	return nil
+}
+
+var trailingCommaRe = regexp.MustCompile(`,(\s*[}\]])`)
 
 // --- prompt construction ---
 
@@ -273,7 +293,6 @@ func (e *LLMEngine) RefinePass(
 		for i := range reviewed {
 			out[start+i].Text = PostProcessTranslation(reviewed[i], req.Honorifics)
 		}
-		e.cache.save()
 
 		if onProgress != nil {
 			onProgress(end, len(out))
@@ -330,7 +349,11 @@ func buildLLMReviewUserPrompt(batch []Segment, req TranslateRequest) string {
 
 	fmt.Fprintf(&sb, "Review and correct these %d subtitle pairs:\n", len(batch))
 	for i, seg := range batch {
-		fmt.Fprintf(&sb, "%d. %s\n   => %s\n", i+1, seg.Text, seg.Text)
+		source := seg.SourceText
+		if source == "" {
+			source = "(source unavailable - polish phrasing only)"
+		}
+		fmt.Fprintf(&sb, "%d. %s\n   => %s\n", i+1, source, seg.Text)
 	}
 	return sb.String()
 }
@@ -432,38 +455,61 @@ type translationCache struct {
 	dirty   bool
 }
 
-func cacheKey(text, sourceLang, targetLang string) string {
-	sum := sha256.Sum256([]byte(sourceLang + "\x00" + targetLang + "\x00" + text))
+// policyHash fingerprints everything besides the raw text that influences a
+// translation (honorific policy, glossary, synopsis) so cache entries are
+// invalidated when settings change.
+func policyHash(req TranslateRequest) string {
+	var sb strings.Builder
+	sb.WriteString(strings.ToLower(strings.TrimSpace(req.Honorifics)))
+
+	entries := append([]GlossaryEntry(nil), req.Glossary...)
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Source != entries[j].Source {
+			return entries[i].Source < entries[j].Source
+		}
+		return entries[i].Target < entries[j].Target
+	})
+	for _, e := range entries {
+		source := strings.TrimSpace(e.Source)
+		target := strings.TrimSpace(e.Target)
+		if source == "" && target == "" {
+			continue
+		}
+		sb.WriteString("\x1f")
+		sb.WriteString(source)
+		sb.WriteString("=")
+		sb.WriteString(target)
+	}
+
+	if synopsis := strings.TrimSpace(req.Synopsis); synopsis != "" {
+		sum := sha256.Sum256([]byte(synopsis))
+		sb.WriteString("\x1esyn:")
+		sb.WriteString(hex.EncodeToString(sum[:8]))
+	}
+
+	sum := sha256.Sum256([]byte(sb.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+// cacheKey hashes every dimension that determines a translation: source and
+// target language, the policy fingerprint (honorifics/glossary/synopsis) and
+// the source text itself.
+func cacheKey(text, sourceLang, targetLang, policy string) string {
+	sum := sha256.Sum256([]byte(sourceLang + "\x00" + targetLang + "\x00" + policy + "\x00" + text))
 	return hex.EncodeToString(sum[:])
 }
 
-func loadTranslationCache(model string) *translationCache {
-	cache := &translationCache{model: model, entries: map[string]string{}}
-
-	if base, err := os.UserCacheDir(); err == nil {
-		dir := filepath.Join(base, "subgen")
-		_ = os.MkdirAll(dir, 0o755)
-		safeModel := strings.NewReplacer("/", "_", "\\", "_", ":", "_").Replace(model)
-		cache.path = filepath.Join(dir, "translations-"+safeModel+".json")
-
-		if data, err := os.ReadFile(cache.path); err == nil {
-			_ = json.Unmarshal(data, &cache.entries)
-		}
-	}
-	return cache
-}
-
-func (c *translationCache) get(text, sourceLang, targetLang string) (string, bool) {
+func (c *translationCache) get(text, sourceLang, targetLang, policy string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	v, ok := c.entries[cacheKey(text, sourceLang, targetLang)]
+	v, ok := c.entries[cacheKey(text, sourceLang, targetLang, policy)]
 	return v, ok
 }
 
-func (c *translationCache) put(text, sourceLang, targetLang, translation string) {
+func (c *translationCache) put(text, sourceLang, targetLang, policy, translation string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	key := cacheKey(text, sourceLang, targetLang)
+	key := cacheKey(text, sourceLang, targetLang, policy)
 	if c.entries[key] != translation {
 		c.entries[key] = translation
 		c.dirty = true
@@ -484,6 +530,32 @@ func (c *translationCache) save() {
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return
 	}
-	_ = os.Rename(tmp, c.path)
+	if err := os.Rename(tmp, c.path); err != nil {
+		// Keep dirty so the next save retries; drop the orphaned temp file.
+		_ = os.Remove(tmp)
+		return
+	}
 	c.dirty = false
+}
+
+func loadTranslationCache(model string) *translationCache {
+	cache := &translationCache{model: model, entries: map[string]string{}}
+
+	if base, err := os.UserCacheDir(); err == nil {
+		dir := filepath.Join(base, "subgen")
+		if err := os.MkdirAll(dir, 0o755); err == nil {
+			safeModel := strings.NewReplacer("/", "_", "\\", "_", ":", "_").Replace(model)
+			cache.path = filepath.Join(dir, "translations-"+safeModel+".json")
+		}
+	}
+
+	data, err := os.ReadFile(cache.path)
+	if err != nil {
+		return cache
+	}
+	if err := json.Unmarshal(data, &cache.entries); err != nil {
+		fmt.Fprintf(os.Stderr, "[subgen] discarding corrupt translation cache %s: %v\n", cache.path, err)
+		cache.entries = map[string]string{}
+	}
+	return cache
 }

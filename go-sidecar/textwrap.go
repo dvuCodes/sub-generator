@@ -63,9 +63,14 @@ var (
 		'}': true, '｝': true, '〉': true, '》': true,
 		'ぁ': true, 'ぃ': true, 'ぅ': true, 'ぇ': true, 'ぉ': true,
 		'っ': true, 'ゃ': true, 'ゅ': true, 'ょ': true, 'ゎ': true,
+		'ゕ': true, 'ゖ': true,
 		'ァ': true, 'ィ': true, 'ゥ': true, 'ェ': true, 'ォ': true,
 		'ッ': true, 'ャ': true, 'ュ': true, 'ョ': true, 'ヮ': true,
+		'ｧ': true, 'ｨ': true, 'ｩ': true, 'ｪ': true, 'ｫ': true,
+		'ｬ': true, 'ｭ': true, 'ｮ': true, 'ｯ': true,
+		'ゝ': true, 'ゞ': true, 'ヽ': true, 'ヾ': true, '々': true,
 		'ー': true, '・': true, 'ﾞ': true, 'ﾟ': true,
+		'｡': true, '､': true, '･': true,
 	}
 	// Runes that must not end a line.
 	kinsokuCannotEnd = map[rune]bool{
@@ -90,10 +95,27 @@ func WrapCueLines(text string, targetLang *string) []string {
 		lang = *targetLang
 	}
 
-	if lang != "" && isCJKLanguage(lang) || containsWideRunes(text) {
+	if lang != "" && isCJKLanguage(lang) || isCJKDominant(text) {
 		return wrapCJK(text, lineColumns(lang))
 	}
 	return wrapLatin(text, defaultLatinLineColumns)
+}
+
+// isCJKDominant requires a clear majority of wide-glyph columns before
+// applying CJK wrapping, so a stray full-width rune in an English cue does
+// not flip it into space-stripping CJK mode.
+func isCJKDominant(s string) bool {
+	wide, total := 0, 0
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		total += cjkAwareWidth(r)
+		if isWideRune(r) {
+			wide += 2
+		}
+	}
+	return total > 0 && wide*10 > total*7
 }
 
 func cjkAwareWidth(r rune) int {
@@ -164,6 +186,31 @@ func greedyWrapWords(words []string, widths []int, cols int) []string {
 
 	for i, w := range words {
 		wid := widths[i]
+
+		// A single token wider than the line gets hard-broken so no line
+		// silently exceeds the limit.
+		for wid > cols {
+			if len(current) > 0 {
+				lines = append(lines, strings.Join(current, " "))
+				current, currentWidth = nil, 0
+			}
+			remaining := w
+			take := cols
+			for textWidth(remaining) > take && len([]rune(remaining)) > 1 {
+				cut := len([]rune(remaining))
+				for cut > 1 && textWidth(string([]rune(remaining)[:cut])) > take {
+					cut--
+				}
+				lines = append(lines, string([]rune(remaining)[:cut]))
+				remaining = string([]rune(remaining)[cut:])
+			}
+			w = remaining
+			wid = textWidth(w)
+			if wid <= cols {
+				break
+			}
+		}
+
 		added := wid
 		if len(current) > 0 {
 			added++ // space

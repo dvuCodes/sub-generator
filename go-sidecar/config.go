@@ -145,6 +145,7 @@ type Segment struct {
 	Text         string   `json:"text"`
 	Lines        []string `json:"lines,omitempty"` // wrapped display lines
 	Words        []Word   `json:"words,omitempty"`
+	SourceText   string   `json:"source_text,omitempty"` // pre-translation source (QA pass)
 	NoSpeechProb float64  `json:"no_speech_prob,omitempty"`
 	AvgLogprob   float64  `json:"avg_logprob,omitempty"`
 	SpeakerID    string   `json:"speaker_id,omitempty"`

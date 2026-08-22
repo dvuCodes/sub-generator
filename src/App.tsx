@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { FormatSelector } from "./components/FormatSelector";
 import { LanguageSelector } from "./components/LanguageSelector";
 import { ModelSelector } from "./components/ModelSelector";
@@ -104,11 +105,16 @@ function formatLogTime(date: Date = new Date()) {
 function parseGlossary(text: string): GlossaryEntry[] {
   return text
     .split("\n")
-    .map((line) => line.split("=", 2).map((part) => part.trim()))
-    .filter((parts): parts is [string, string] =>
-      Boolean(parts[0]) && Boolean(parts[1])
-    )
-    .map(([source, target]) => ({ source, target }));
+    .map((line) => {
+      // Split on the first "=" only; values may legitimately contain "=".
+      const idx = line.indexOf("=");
+      if (idx === -1) return null;
+      const source = line.slice(0, idx).trim();
+      const target = line.slice(idx + 1).trim();
+      if (!source || !target) return null;
+      return { source, target };
+    })
+    .filter((entry): entry is GlossaryEntry => entry !== null);
 }
 
 function App() {
@@ -507,6 +513,27 @@ function App() {
       setTargetLang("");
     }
   }, [languageOptions, selectedTranslationBackend, sourceLang, targetLang]);
+
+  // A sidecar crash mid-job would otherwise leave the UI frozen on
+  // "Processing..." forever - surface it immediately when the process dies.
+  const isProcessingRef = useRef(false);
+  useEffect(() => {
+    isProcessingRef.current = appState === "processing";
+  }, [appState]);
+
+  useEffect(() => {
+    const unlisten = listen("sidecar-terminated", () => {
+      if (!isProcessingRef.current) return;
+      setProcessing(createInitialProcessingState());
+      setErrorMsg(
+        "Backend connection lost - the running job was interrupted. It restarts automatically; try again."
+      );
+      setAppState("error");
+    });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
 
   const handleGenerate = useCallback(async () => {
     if (!videoPath || !connected) return;
@@ -961,7 +988,10 @@ function App() {
                   <p className="text-xs text-destructive">{errorMsg}</p>
                   <button
                     type="button"
-                    onClick={() => setAppState("idle")}
+                    onClick={() => {
+                      setErrorMsg("");
+                      setAppState("idle");
+                    }}
                     className="mt-2 text-[10px] text-destructive/70 underline underline-offset-2 hover:text-destructive"
                   >
                     Dismiss

@@ -14,9 +14,10 @@ import (
 // DeepLEngine translates via the DeepL REST API. Free-tier keys end in ":fx"
 // and use api-free.deepl.com; pro keys use api.deepl.com.
 type DeepLEngine struct {
-	apiKey    string
-	client    *http.Client
-	batchSize int
+	apiKey          string
+	client          *http.Client
+	batchSize       int
+	baseURLOverride string // used by tests to point at a stub server
 }
 
 func NewDeepLEngine(apiKey string) *DeepLEngine {
@@ -30,7 +31,13 @@ func NewDeepLEngine(apiKey string) *DeepLEngine {
 func (e *DeepLEngine) Name() string   { return "deepl" }
 func (e *DeepLEngine) BatchSize() int { return e.batchSize }
 
+// SetBaseURL overrides the endpoint (test hook).
+func (e *DeepLEngine) SetBaseURL(url string) { e.baseURLOverride = url }
+
 func (e *DeepLEngine) baseURL() string {
+	if e.baseURLOverride != "" {
+		return e.baseURLOverride
+	}
 	if strings.HasSuffix(e.apiKey, ":fx") {
 		return "https://api-free.deepl.com"
 	}
@@ -59,7 +66,11 @@ func (e *DeepLEngine) TranslateBatch(ctx context.Context, texts []string, req Tr
 	payload := deeplTranslateRequest{
 		Text:       texts,
 		TargetLang: strings.ToUpper(req.TargetLang),
-		SourceLang: strings.ToUpper(req.SourceLang),
+	}
+
+	// DeepL auto-detects by omitting source_lang entirely ("auto" is rejected).
+	if src := strings.TrimSpace(req.SourceLang); src != "" && !strings.EqualFold(src, "auto") {
+		payload.SourceLang = strings.ToUpper(src)
 	}
 
 	// DeepL's context parameter biases translation without being translated.

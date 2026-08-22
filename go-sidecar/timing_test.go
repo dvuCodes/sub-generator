@@ -70,7 +70,7 @@ func TestNormalizeCuesSplitsLongCueAtSentenceBoundary(t *testing.T) {
 		if cue.End-cue.Start > opts.MaxDur+timeEpsilon {
 			t.Fatalf("cue exceeds max duration: %#v", cue)
 		}
-		if !strings.Contains(cue.Text, ".") == false && len(cue.Text) == 0 {
+		if len(cue.Text) == 0 {
 			t.Fatalf("empty cue text: %#v", cue)
 		}
 	}
@@ -169,19 +169,49 @@ func TestSnapToShotsSnapsStartOnCut(t *testing.T) {
 	}
 }
 
-func TestRoundFramesQuantizesAndKeepsOrder(t *testing.T) {
+func TestSnapToShotsDoesNotOverlapFollowingCue(t *testing.T) {
 	opts := NewTimingOptions("en", 24)
-	cues := roundFrames([]Segment{
-		seg(0.50004, 1.99996, "a"),
-		seg(2.00001, 3.49999, "b"),
+	opts.ShotTimes = []float64{10.4}
+	// Without the next-cue clamp, the end would snap to 10.4-2f=10.317 which
+	// violates the minimum gap against B at 10.30.
+	cues := snapToShots([]Segment{
+		seg(0.0, 9.95, "cue whose end sits inside the snap window"),
+		seg(10.30, 15.0, "next"),
 	}, opts)
 
-	if !almostEqual(cues[0].Start, 0.5) {
-		t.Fatalf("start = %v, want 0.5", cues[0].Start)
+	if !almostEqual(cues[0].End, 10.30-opts.Gap) {
+		t.Fatalf("end = %v, want clamped to %v", cues[0].End, 10.30-opts.Gap)
 	}
-	if cues[0].End > cues[1].Start {
-		t.Fatalf("rounding broke ordering: %#v", cues)
+	if cues[0].End > cues[1].Start-opts.Gap+timeEpsilon {
+		t.Fatalf("end-snap created overlap/gap violation: end=%v nextStart=%v",
+			cues[0].End, cues[1].Start)
 	}
+}
+
+func TestRoundFramesQuantizesAndKeepsOrder(t *testing.T) {
+	opts := NewTimingOptions("en", 24)
+	cues := []Segment{
+		seg(0.50004, 1.99996, "a"),
+		seg(2.00001, 3.49999, "b"),
+	}
+	out := roundFrames(cues, opts)
+
+	if len(out) != 2 {
+		t.Fatalf("cues dropped by rounding: %#v", out)
+	}
+	for i, cue := range out {
+		if !onFrameGrid(cue.Start, 24) || !onFrameGrid(cue.End, 24) {
+			t.Fatalf("cue %d times off frame grid: %#v", i, cue)
+		}
+	}
+	gap := out[1].Start - out[0].End
+	if gap < opts.Gap-timeEpsilon || out[0].End > out[1].Start {
+		t.Fatalf("rounding broke spacing/order: gap=%v", gap)
+	}
+}
+
+func onFrameGrid(t float64, fps float64) bool {
+	return almostEqual(t*fps, math.Round(t*fps))
 }
 
 func TestComputeQCReportsViolations(t *testing.T) {

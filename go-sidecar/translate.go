@@ -86,6 +86,7 @@ func ContextualTranslate(
 				Start:        src.Start,
 				End:          src.End,
 				Text:         final,
+				SourceText:   src.Text, // keep source for the QA review pass
 				Words:        src.Words,
 				AvgLogprob:   src.AvgLogprob,
 				NoSpeechProb: src.NoSpeechProb,
@@ -111,23 +112,29 @@ func translateWithRecovery(
 	texts []string,
 	req TranslateRequest,
 ) ([]string, error) {
-	out, err := engine.TranslateBatch(ctx, texts, req)
-	if err == nil && len(out) == len(texts) {
+	out, engineErr := engine.TranslateBatch(ctx, texts, req)
+	if engineErr == nil && len(out) == len(texts) {
 		return out, nil
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	if len(out) > 0 && len(out) != len(texts) {
-		err = fmt.Errorf("engine returned %d translations for %d inputs", len(out), len(texts))
+	if len(out) != len(texts) {
+		engineErr = errors.Join(engineErr, fmt.Errorf(
+			"engine returned %d translations for %d inputs", len(out), len(texts),
+		))
+	}
+	if engineErr == nil {
+		engineErr = errors.New("translation failed")
 	}
 
 	if len(texts) == 1 {
-		out, retryErr := engine.TranslateBatch(ctx, texts, req)
-		if retryErr != nil || len(out) != 1 {
-			return nil, fmt.Errorf("%q: %w", truncateForLog(texts[0], 60), errors.Join(err, retryErr))
+		retryOut, retryErr := engine.TranslateBatch(ctx, texts, req)
+		if retryErr != nil || len(retryOut) != 1 {
+			return nil, fmt.Errorf("%q: %w",
+				truncateForLog(texts[0], 60), errors.Join(engineErr, retryErr))
 		}
-		return out, nil
+		return retryOut, nil
 	}
 
 	mid := len(texts) / 2
@@ -152,14 +159,22 @@ func recentPairs(sources, targets []string, limit int) []ContextPair {
 	return pairs
 }
 
+// honorificSuffixRe strips hyphen-attached Japanese honorifics only
+// ("Kaguya-san" -> "Kaguya"). Space-separated forms are deliberately NOT
+// matched: "a tan coat", "in San Francisco" and surnames like "Susan Tan"
+// are legitimate English and must survive the drop policy.
 var honorificSuffixRe = regexp.MustCompile(
-	`(?i)([A-Za-z][A-Za-z'’]{1,24})[-–—\s](san|kun|chan|sama|sensei|senpai|dono|tan)\b`,
+	`(?i)([A-Za-z][A-Za-z'’]{1,24})[-–—](san|kun|chan|sama|sensei|senpai|dono)\b`,
 )
+
+// asciiSpaceRun collapses runs of ASCII whitespace only, leaving CJK
+// ideographic spaces (U+3000) intact.
+var asciiSpaceRun = regexp.MustCompile(`[ \t\n\r\f\v]+`)
 
 // PostProcessTranslation normalizes engine output and applies honorific policy.
 func PostProcessTranslation(text string, honorifics string) string {
 	text = strings.TrimSpace(text)
-	text = strings.Join(strings.Fields(text), " ")
+	text = asciiSpaceRun.ReplaceAllString(text, " ")
 
 	if strings.EqualFold(honorifics, "drop") {
 		text = honorificSuffixRe.ReplaceAllString(text, "$1")
