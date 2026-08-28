@@ -1,3 +1,4 @@
+import type { CueView, QCReport } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -9,6 +10,22 @@ import {
 } from "@hugeicons/core-free-icons";
 import { deriveOutputDirectory, explorerOpenTarget } from "@/lib/outputPath";
 
+const QC_LABELS: Record<string, string> = {
+  duration_over_max: "Over max duration",
+  duration_under_min: "Too short",
+  cps_over_limit: "Reading speed high",
+  line_too_long: "Line too long",
+  lines_over_max: "Too many lines",
+  overlap: "Overlapping cues",
+  gap_too_small: "Gap too small",
+};
+
+function formatCueTime(secs: number) {
+  const minutes = Math.floor(secs / 60);
+  const seconds = secs - minutes * 60;
+  return `${minutes}:${seconds.toFixed(1).padStart(4, "0")}`;
+}
+
 interface OutputResultProps {
   outputPath: string;
   transcriptionLog?: string;
@@ -18,6 +35,8 @@ interface OutputResultProps {
   selectedASRBackend?: string;
   diarizationRan?: boolean;
   speakerCount?: number;
+  qc?: QCReport | null;
+  preview?: CueView[] | null;
   onReset: () => void;
 }
 
@@ -30,6 +49,8 @@ export function OutputResult({
   selectedASRBackend,
   diarizationRan,
   speakerCount,
+  qc,
+  preview,
   onReset,
 }: OutputResultProps) {
   const fileName = outputPath.split(/[/\\]/).pop() ?? outputPath;
@@ -48,6 +69,22 @@ export function OutputResult({
     secs < 60
       ? `${Math.round(secs)}s`
       : `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s`;
+
+  // Show every violation type the backend reported, so new QC categories are
+  // never silently hidden; known keys get friendly labels.
+  const summaryEntries = qc
+    ? Object.entries(qc.summary)
+        .filter(([, count]) => count > 0)
+        .map(([key, count]) => ({
+          key,
+          label: QC_LABELS[key] ?? key.replaceAll("_", " "),
+          count,
+        }))
+    : [];
+  const totalViolations = summaryEntries.reduce(
+    (sum, entry) => sum + entry.count,
+    0
+  );
 
   return (
     <Card className="border-chart-1/30 bg-chart-1/5">
@@ -128,6 +165,66 @@ export function OutputResult({
             </div>
           )}
         </div>
+
+        {qc && (
+          <>
+            <Separator />
+            <div className="space-y-3">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Quality report
+              </h3>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["Cues", qc.cue_count],
+                  ["Avg CPS", qc.avg_cps.toFixed(1)],
+                  ["Max CPS", qc.max_cps.toFixed(1)],
+                ].map(([label, value]) => (
+                  <div key={label} className="border border-border bg-muted/30 p-2 text-center">
+                    <div className="font-mono text-sm text-foreground">{value}</div>
+                    <div className="text-[10px] text-muted-foreground">{label}</div>
+                  </div>
+                ))}
+              </div>
+              {totalViolations === 0 ? (
+                <p className="text-xs text-chart-1">No timing violations</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  {summaryEntries.map((entry) => (
+                    <div
+                      key={entry.key}
+                      className="flex justify-between text-[10px] text-muted-foreground"
+                    >
+                      <span>{entry.label}</span>
+                      <span className="text-chart-4">{entry.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {preview && preview.length > 0 && (
+          <>
+            <Separator />
+            <div className="space-y-2">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Cue preview
+              </h3>
+              <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
+                {preview.map((cue, index) => (
+                  <div key={`${cue.start}-${cue.end}-${index}`} className="border border-border bg-muted/20 px-3 py-2">
+                    <div className="flex gap-2 font-mono text-[10px] text-muted-foreground">
+                      <span>{index + 1}</span>
+                      <span>{formatCueTime(cue.start)} → {formatCueTime(cue.end)}</span>
+                    </div>
+                    <p className="mt-1 whitespace-pre-line text-xs text-foreground">{cue.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="flex gap-2">
           <Button

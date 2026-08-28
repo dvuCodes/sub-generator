@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,12 +18,16 @@ var pipelineMu sync.Mutex
 var actionRegistry = NewActionRegistry()
 
 var runGenerate = func(pipeline *Pipeline, cmd Command) {
-	if !pipelineMu.TryLock() {
-		sendError("Generate failed", "Cannot generate while installing. Wait for installation to complete.")
-		return
+	if err := jobs.start(func(ctx context.Context) {
+		if !pipelineMu.TryLock() {
+			sendError("Generate failed", "Cannot generate while installing. Wait for installation to complete.")
+			return
+		}
+		defer pipelineMu.Unlock()
+		pipeline.RunContext(ctx, cmd)
+	}); err != nil {
+		sendError("Job not started", err.Error())
 	}
-	defer pipelineMu.Unlock()
-	pipeline.Run(cmd)
 }
 
 type translationService interface {
@@ -31,18 +36,67 @@ type translationService interface {
 	LlamaServerPort() int
 }
 
+// jobManager tracks the single active generate job so it can be cancelled.
+type jobManager struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	active bool
+}
+
+var jobs = &jobManager{}
+
+func (j *jobManager) start(fn func(ctx context.Context)) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.active {
+		return fmt.Errorf("another generation job is already running - cancel it first")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	j.cancel = cancel
+	j.active = true
+
+	go func() {
+		defer func() {
+			j.mu.Lock()
+			j.active = false
+			j.cancel = nil
+			j.mu.Unlock()
+		}()
+		fn(ctx)
+	}()
+	return nil
+}
+
+func (j *jobManager) cancelActive() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if !j.active || j.cancel == nil {
+		return false
+	}
+	j.cancel()
+	return true
+}
+
+func (j *jobManager) isActive() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.active
+}
+
 func main() {
 	initJobObject()
 
 	svcConfig := DefaultServiceConfig()
 	svcManager := NewServiceManager(svcConfig)
 	pipeline := NewPipeline(svcManager)
-
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
+		if jobs.isActive() {
+			jobs.cancelActive()
+		}
 		svcManager.StopAll()
 		os.Exit(0)
 	}()
@@ -78,6 +132,11 @@ func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) 
 	case "generate":
 		go runGenerate(pipeline, cmd)
 
+	case "cancel":
+		if !jobs.cancelActive() {
+			sendError("Nothing to cancel", "No generation job is currently running")
+		}
+
 	case "list_languages":
 		langs, err := listAvailableLanguages()
 		if err != nil {
@@ -96,12 +155,16 @@ func handleCommand(cmd Command, pipeline *Pipeline, svcManager *ServiceManager) 
 		whisperOK := svcManager.IsWhisperRunning()
 		llamaOK := svcManager.IsLlamaServerRunning()
 		mlBackendOK := svcManager.IsMLBackendRunning()
+		_, ffmpegErr := LookupFFmpeg()
 		sendJSON(SystemInfoResponse{
 			Type:              "system_info",
 			WhisperServer:     whisperOK,
 			TranslationEngine: llamaOK,
 			MLBackend:         mlBackendOK,
 			GPU:               detectGPU(),
+			LibreTranslate:    svcManager.IsLibreTranslateRunning(),
+			FFmpeg:            ffmpegErr == nil,
+			VADModel:          svcManager.HasVADModel(),
 		})
 
 	case "vram_info":
@@ -371,9 +434,14 @@ func sendTimerProgress(stage string, percent float64, message string, elapsedSec
 	sendJSON(resp)
 }
 
+func sendCancelled() {
+	sendJSON(CancelledResponse{
+		Type:    "cancelled",
+		Message: "Generation cancelled",
+	})
+}
+
 func detectGPU() string {
-	// Try nvidia-smi to detect GPU
-	// This is a simple check - just return the GPU name or "none"
 	out, err := runCommand("nvidia-smi", "--query-gpu=name", "--format=csv,noheader,nounits")
 	if err != nil {
 		return "none"

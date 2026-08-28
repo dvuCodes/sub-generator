@@ -50,7 +50,10 @@ const WHISPER_MODELS: {
   { id: "small", name: "Small", size: "466 MB", desc: "Higher accuracy fallback" },
   { id: "medium", name: "Medium", size: "1.5 GB", desc: "Slow, strong accuracy" },
   { id: "large-v3", name: "Large v3", size: "3.1 GB", desc: "Best local Whisper accuracy" },
-  { id: "turbo", name: "Turbo", size: "809 MB", desc: "Recommended whisper.cpp fallback" },
+  { id: "large-v3-q5_0", name: "Large v3 Q5_0", size: "1.1 GB", desc: "Quantized large-v3 with lower VRAM use" },
+  { id: "turbo", name: "Turbo", size: "809 MB", desc: "Fast whisper.cpp fallback" },
+  { id: "turbo-q5_0", name: "Turbo Q5_0", size: "574 MB", desc: "Recommended speed and accuracy balance" },
+  { id: "turbo-q8_0", name: "Turbo Q8_0", size: "834 MB", desc: "Higher precision quantized turbo" },
 ];
 
 const FASTER_WHISPER_MODELS: ModelOption[] = [

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +19,8 @@ var supportedVideoExts = map[string]bool{
 	".flv":  true,
 	".wmv":  true,
 	".m4v":  true,
+	".wav":  true,
+	".mp3":  true,
 }
 
 const maxSubtitleSegmentDurationSeconds = 20.0
@@ -62,6 +66,10 @@ func (p *Pipeline) stopServices() {
 }
 
 func (p *Pipeline) Run(cmd Command) {
+	p.RunContext(context.Background(), cmd)
+}
+
+func (p *Pipeline) RunContext(ctx context.Context, cmd Command) {
 	startTime := time.Now()
 	defer p.stopServices()
 
@@ -83,91 +91,103 @@ func (p *Pipeline) Run(cmd Command) {
 		return
 	}
 
-	// Step 3: Ensure services are running
+	ffmpegPath, err := LookupFFmpeg()
+	if err != nil {
+		sendError("Missing dependency", err.Error())
+		return
+	}
+
+	// Step 2: Ensure services are running
 	sendStage("starting_services", "Ensuring services are running...")
-	if err := p.ensureServices(cmd); err != nil {
+	if err := p.ensureServices(ctx, cmd); err != nil {
 		sendError("Service startup failed", err.Error())
 		return
 	}
 
-	preparedInput := prepareTranscriptionInput(cmd, selectedASRBackend)
-	defer preparedInput.Cleanup()
-
-	// Step 4: Transcribe
-	sendStage("transcribing", "Transcribing speech...")
-
-	mediaDuration, probeErr := MediaDuration(cmd.InputVideo)
-	if probeErr != nil {
-		fmt.Fprintf(os.Stderr, "ffprobe duration probe failed (ETA unavailable): %v\n", probeErr)
-	}
-
-	hasGPU := detectGPU() != "none"
-	estimatedSecs := EstimateTranscriptionSeconds(mediaDuration, cmd.ModelSize, hasGPU)
-	if selectedASRBackend != "whisper_cpp" {
-		estimatedSecs = 0
-	}
-
-	done := make(chan struct{})
-	transcribeStart := time.Now()
-
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				elapsed := time.Since(transcribeStart).Seconds()
-
-				var percent float64
-				var etaSecs float64
-				var msg string
-
-				if estimatedSecs > 0 {
-					percent = (elapsed / estimatedSecs) * 100
-					if percent > 99 {
-						percent = 99
-					}
-					etaSecs = estimatedSecs - elapsed
-					if etaSecs < 0 {
-						etaSecs = 0
-					}
-
-					if elapsed > estimatedSecs*1.2 {
-						msg = fmt.Sprintf("Transcribing... %s elapsed (taking longer than expected)", formatDuration(elapsed))
-					} else {
-						msg = fmt.Sprintf("Transcribing... %s elapsed / ~%s remaining", formatDuration(elapsed), formatDuration(etaSecs))
-					}
-				} else {
-					msg = fmt.Sprintf("Transcribing... %s elapsed", formatDuration(elapsed))
-				}
-
-				sendTimerProgress("transcribing", percent, msg, elapsed, etaSecs)
-			}
+	// Resolve an explicitly configured contextual engine. If the advanced
+	// engine fields are absent, preserve main's NLLB/Gemma backend selection.
+	var engine TranslateEngine
+	targetLang := derefString(cmd.TargetLang)
+	translating := targetLang != "" && selectedTranslationBackend != "none"
+	useContextualEngine := targetLang != "" && ((strings.TrimSpace(cmd.TranslationEngine) != "" && !strings.EqualFold(cmd.TranslationEngine, "backend")) ||
+		hasLLMConfig(cmd) || hasDeepLConfig(cmd))
+	if useContextualEngine {
+		engine, err = selectTranslationEngine(cmd, p.svcManager.config.LibreTranslatePort)
+		if err != nil {
+			sendError("Translation setup failed", err.Error())
+			return
 		}
-	}()
+		translating = true
+	}
 
-	transcribeCmd := cmd
-	transcribeCmd.InputVideo = preparedInput.TranscriptionPath
-	result, err := p.transcribe(transcribeCmd, selectedASRBackend, selectedASRModelID)
-	close(done)
-
+	// Step 3: Extract canonical audio (16 kHz mono WAV) and detect scene cuts.
+	sendStage("preparing", "Extracting audio track...")
+	wavPath, audioDuration, cleanupAudio, err := p.extractAudio(ctx, ffmpegPath, cmd.InputVideo)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			sendCancelled()
+			return
+		}
+		sendError("Audio extraction failed", err.Error())
+		return
+	}
+	defer cleanupAudio()
+
+	shotSnap := cmd.ShotSnap == nil || *cmd.ShotSnap
+	var shotTimes []float64
+	if shotSnap {
+		sendStage("preparing", "Detecting scene cuts...")
+		shotTimes, _ = DetectShotChanges(ctx, ffmpegPath, cmd.InputVideo)
+		if len(shotTimes) > 0 {
+			sendProgress("preparing", 100, fmt.Sprintf("Found %d scene cuts", len(shotTimes)))
+		}
+	}
+
+	if ctx.Err() != nil {
+		sendCancelled()
+		return
+	}
+
+	// Step 4: Transcribe with heartbeats so the UI stays live.
+	sendStage("transcribing", "Transcribing speech...")
+	stopHeartbeat := startTranscribeHeartbeat(audioDuration)
+	transcribeCmd := cmd
+	transcribeCmd.InputVideo = wavPath
+	result, err := p.transcribeContext(ctx, transcribeCmd, selectedASRBackend, selectedASRModelID)
+	stopHeartbeat()
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			sendCancelled()
+			return
+		}
 		sendError("Transcription failed", err.Error())
 		return
 	}
 
+	sourceLang := derefString(cmd.SourceLang)
+	if sourceLang == "" || strings.EqualFold(sourceLang, "auto") {
+		sourceLang = result.Language
+	}
+
 	sendProgress("transcribing", 100, fmt.Sprintf("Transcribed %d segments", len(result.Segments)))
 
-	segments := result.Segments
+	if len(result.Segments) == 0 {
+		sendError("No speech detected", "The audio track contains no recognizable speech.")
+		return
+	}
+
+	// Step 5: Normalize source timings before diarization and translation.
+	sendStage("timing", "Normalizing cue timing...")
+	preOpts := NewTimingOptions(sourceLangForTiming(sourceLang), cmd.FrameRate)
+	preOpts.ShotTimes = shotTimes
+	segments := NormalizeCues(result.Segments, preOpts, shotSnap)
+
 	diarizationRan := false
 	var speakerCount *int
 
 	if diarizationRequested {
 		sendStage("diarizing", "Labeling speakers...")
-		annotatedSegments, count, annotateErr := p.annotateDiarization(preparedInput.DiarizationPath, segments)
+		annotatedSegments, count, annotateErr := p.annotateDiarization(wavPath, segments)
 		if annotateErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: diarization failed, continuing without speaker labels: %v\n", annotateErr)
 			sendStage("diarizing", "Speaker labeling unavailable, continuing without speaker labels")
@@ -183,10 +203,6 @@ func (p *Pipeline) Run(cmd Command) {
 	var transcriptionLogPath string
 	if cmd.TargetLang != nil && *cmd.TargetLang != "" {
 		logPath := DeriveTranscriptionLogPath(cmd.InputVideo)
-		sourceLang := result.Language
-		if cmd.SourceLang != nil && *cmd.SourceLang != "" && *cmd.SourceLang != "auto" {
-			sourceLang = *cmd.SourceLang
-		}
 		if err := WriteTranscriptionLog(segments, logPath, sourceLang); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to write transcription log to %q: %v\n", logPath, err)
 		} else {
@@ -194,38 +210,82 @@ func (p *Pipeline) Run(cmd Command) {
 		}
 	}
 
-	// Step 6: Translate (if target language specified)
-	if cmd.TargetLang != nil && *cmd.TargetLang != "" && selectedTranslationBackend != "none" {
-		sendStage("translating", fmt.Sprintf("Translating to %s...", *cmd.TargetLang))
-
-		// Determine source language
-		sourceLang := "auto"
-		if cmd.SourceLang != nil && *cmd.SourceLang != "" && *cmd.SourceLang != "auto" {
-			sourceLang = *cmd.SourceLang
-		} else if result.Language != "" {
-			sourceLang = result.Language
-		}
+	// Step 6: Translation with sliding-window context.
+	if translating {
 		if selectedTranslationBackend == defaultTranslationBackend && sourceLang == "auto" {
 			sendError("Translation failed", "Could not determine the source language for NLLB translation. Choose a source language explicitly or retry with clearer speech.")
 			return
 		}
 
-		translated, err := p.translateSegments(
-			selectedTranslationBackend,
-			selectedTranslationModelID,
-			segments,
-			sourceLang,
-			*cmd.TargetLang,
-		)
+		var translated []Segment
+		if useContextualEngine {
+			sendStage("translating", fmt.Sprintf("Translating to %s via %s...", targetLang, engine.Name()))
+			req := TranslateRequest{
+				SourceLang: firstNonEmpty(sourceLang, "auto"),
+				TargetLang: targetLang,
+				Synopsis:   cmd.Synopsis,
+				Glossary:   cmd.Glossary,
+				Honorifics: firstNonEmpty(cmd.Honorifics, "keep"),
+			}
+			translated, err = ContextualTranslate(ctx, segments, engine, req, func(current, total int) {
+				pct := float64(current) / float64(total) * 100
+				sendProgress("translating", pct, fmt.Sprintf("Translated %d/%d lines", current, total))
+			})
+		} else {
+			sendStage("translating", fmt.Sprintf("Translating to %s...", targetLang))
+			translated, err = p.translateSegments(
+				selectedTranslationBackend,
+				selectedTranslationModelID,
+				segments,
+				sourceLang,
+				targetLang,
+			)
+		}
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				sendCancelled()
+				return
+			}
 			sendError("Translation failed", err.Error())
 			return
 		}
-
 		segments = translated
+
+		if cmd.QAPass && useContextualEngine {
+			req := TranslateRequest{
+				SourceLang: firstNonEmpty(sourceLang, "auto"),
+				TargetLang: targetLang,
+				Synopsis:   cmd.Synopsis,
+				Glossary:   cmd.Glossary,
+				Honorifics: firstNonEmpty(cmd.Honorifics, "keep"),
+			}
+			sendStage("translating", "Running translation QA pass...")
+			if qa, ok := engine.(interface {
+				RefinePass(context.Context, []Segment, TranslateRequest, func(int, int)) ([]Segment, error)
+			}); ok {
+				refined, err := qa.RefinePass(ctx, segments, req, func(current, total int) {
+					pct := float64(current) / float64(total) * 100
+					sendProgress("translating", pct, fmt.Sprintf("Reviewed %d/%d lines", current, total))
+				})
+				if err == nil {
+					segments = refined
+				} else if !errors.Is(err, context.Canceled) {
+					fmt.Fprintf(os.Stderr, "[subgen] QA pass skipped: %v\n", err)
+				}
+			}
+		}
 	}
 
-	// Step 7: Write subtitle file
+	// Step 7: Post-translation normalization against target-language rules.
+	sendStage("timing", "Applying subtitle timing rules...")
+	outputLanguage := firstNonEmpty(targetLang, sourceLang)
+	postOpts := NewTimingOptions(outputLanguage, cmd.FrameRate)
+	postOpts.ShotTimes = shotTimes
+	segments = NormalizeCues(segments, postOpts, shotSnap)
+
+	FinalizeLineWrapping(segments, outputLanguage)
+
+	// Step 8: Write subtitle file + QC report.
 	sendStage("writing", "Writing subtitle file...")
 
 	outputFormat := cmd.OutputFormat
@@ -233,10 +293,8 @@ func (p *Pipeline) Run(cmd Command) {
 		outputFormat = "srt"
 	}
 
-	outputPath := ""
-	if cmd.OutputPath != nil && *cmd.OutputPath != "" {
-		outputPath = *cmd.OutputPath
-	} else {
+	outputPath := derefString(cmd.OutputPath)
+	if outputPath == "" {
 		outputPath = DeriveOutputPath(cmd.InputVideo, outputFormat, cmd.TargetLang)
 	}
 
@@ -244,6 +302,12 @@ func (p *Pipeline) Run(cmd Command) {
 	if err := writer.Write(segments, outputPath, outputFormat, cmd.TargetLang); err != nil {
 		sendError("Failed to write subtitle file", err.Error())
 		return
+	}
+
+	report := ComputeQC(segments, postOpts)
+	qcPath := outputPath + ".qc.json"
+	if err := WriteQCReport(report, qcPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[subgen] QC report write failed: %v\n", err)
 	}
 
 	// Done
@@ -258,7 +322,177 @@ func (p *Pipeline) Run(cmd Command) {
 		SelectedASRBackend: selectedASRBackend,
 		DiarizationRan:     diarizationRan,
 		SpeakerCount:       speakerCount,
+		QC:                 report,
+		Preview:            cuePreview(segments, 80),
 	})
+}
+
+func (p *Pipeline) extractAudio(ctx context.Context, ffmpegPath, input string) (string, float64, func(), error) {
+	wavPath, duration, err := ExtractAudio(ctx, ffmpegPath, input)
+	cleanup := func() {
+		if wavPath != "" {
+			_ = os.RemoveAll(filepath.Dir(wavPath))
+		}
+	}
+	if err != nil {
+		cleanup()
+		return "", 0, cleanup, err
+	}
+	return wavPath, duration, cleanup, nil
+}
+
+// startTranscribeHeartbeat emits periodic progress while the long-running
+// inference request is in flight. The whisper.cpp server serializes requests
+// behind a mutex and exposes no progress API, so elapsed-time heartbeats keep
+// the UI alive without fabricating percentages.
+func startTranscribeHeartbeat(audioDuration float64) (stop func()) {
+	started := time.Now()
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				elapsed := time.Since(started).Truncate(time.Second)
+				message := fmt.Sprintf("Transcribing... %s elapsed", elapsed)
+				if audioDuration > 0 {
+					message += fmt.Sprintf(" (%.0fs of audio)", audioDuration)
+				}
+				sendProgress("transcribing", -1, message)
+			}
+		}
+	}()
+
+	return func() { close(done); <-stopped }
+}
+
+func (p *Pipeline) ensureServices(ctx context.Context, cmd Command) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	switch resolveASRBackend(cmd) {
+	case "whisper_cpp":
+		sendProgress("starting_services", 25, "Starting whisper-server...")
+		if err := p.svcManager.StartWhisperServer(cmd.ModelSize); err != nil {
+			return fmt.Errorf("whisper-server: %w", err)
+		}
+	default:
+		sendProgress("starting_services", 25, "Starting ml-backend...")
+		if err := p.svcManager.StartMLBackend(); err != nil {
+			return fmt.Errorf("ml-backend: %w", err)
+		}
+	}
+	sendProgress("starting_services", 60, "Transcription service ready")
+
+	if translatingWithLibre(cmd) {
+		if !p.svcManager.IsLibreTranslateRunning() {
+			sendProgress("starting_services", 80, "Starting LibreTranslate...")
+			if err := p.svcManager.StartLibreTranslate(); err != nil {
+				return fmt.Errorf("libretranslate: %w", err)
+			}
+		}
+	}
+	sendProgress("starting_services", 100, "All services ready")
+	return nil
+}
+
+func translatingWithLibre(cmd Command) bool {
+	if cmd.TargetLang == nil || strings.TrimSpace(*cmd.TargetLang) == "" {
+		return false
+	}
+	if strings.TrimSpace(cmd.TranslationEngine) == "" && !hasLLMConfig(cmd) && !hasDeepLConfig(cmd) {
+		return false
+	}
+	switch resolveEngineName(cmd) {
+	case "libretranslate":
+		return true
+	case "auto":
+		// auto falls back to LibreTranslate only when no other engine is configured
+		return !hasLLMConfig(cmd) && !hasDeepLConfig(cmd)
+	default:
+		return false
+	}
+}
+
+func resolveEngineName(cmd Command) string {
+	name := strings.ToLower(strings.TrimSpace(cmd.TranslationEngine))
+	if name == "" {
+		return "auto"
+	}
+	return name
+}
+
+func hasLLMConfig(cmd Command) bool {
+	return firstNonEmpty(cmd.LLMBaseURL, os.Getenv("SUBGEN_LLM_BASE_URL")) != ""
+}
+
+func hasDeepLConfig(cmd Command) bool {
+	return firstNonEmpty(cmd.DeepLAPIKey, os.Getenv("SUBGEN_DEEPL_API_KEY")) != ""
+}
+
+// selectTranslationEngine picks the translation backend from explicit
+// configuration, falling back through configured credentials to LibreTranslate.
+func selectTranslationEngine(cmd Command, librePort int) (TranslateEngine, error) {
+	switch resolveEngineName(cmd) {
+	case "libretranslate":
+		return NewLibreEngine(librePort), nil
+
+	case "deepl":
+		key := firstNonEmpty(cmd.DeepLAPIKey, os.Getenv("SUBGEN_DEEPL_API_KEY"))
+		if key == "" {
+			return nil, errors.New("DeepL engine selected but no API key provided")
+		}
+		return NewDeepLEngine(key), nil
+
+	case "llm":
+		base := firstNonEmpty(cmd.LLMBaseURL, os.Getenv("SUBGEN_LLM_BASE_URL"), "http://127.0.0.1:11434")
+		model := firstNonEmpty(cmd.LLMModel, os.Getenv("SUBGEN_LLM_MODEL"))
+		key := firstNonEmpty(cmd.LLMAPIKey, os.Getenv("SUBGEN_LLM_API_KEY"), os.Getenv("OPENAI_API_KEY"))
+		return NewLLMEngine(base, model, key), nil
+
+	default: // auto
+		if base := firstNonEmpty(cmd.LLMBaseURL, os.Getenv("SUBGEN_LLM_BASE_URL")); base != "" {
+			model := firstNonEmpty(cmd.LLMModel, os.Getenv("SUBGEN_LLM_MODEL"))
+			key := firstNonEmpty(cmd.LLMAPIKey, os.Getenv("SUBGEN_LLM_API_KEY"), os.Getenv("OPENAI_API_KEY"))
+			return NewLLMEngine(base, model, key), nil
+		}
+		if key := firstNonEmpty(cmd.DeepLAPIKey, os.Getenv("SUBGEN_DEEPL_API_KEY")); key != "" {
+			return NewDeepLEngine(key), nil
+		}
+		return NewLibreEngine(librePort), nil
+	}
+}
+
+func buildTranscribeOptions(cmd Command, vadModelAvailable bool) TranscribeOptions {
+	opts := DefaultTranscribeOptions()
+
+	sourceLang := derefString(cmd.SourceLang)
+	if strings.EqualFold(sourceLang, "auto") {
+		sourceLang = ""
+	}
+	opts.SourceLang = sourceLang
+	opts.InitialPrompt = cmd.InitialPrompt
+	opts.VADEnabled = cmd.VADFilter && vadModelAvailable
+
+	if cmd.BeamSize > 0 {
+		opts.BeamSize = cmd.BeamSize
+	}
+
+	// Subtitle-friendly initial segmentation; the timing engine refines further.
+	if sourceLang != "" && isCJKLanguage(sourceLang) {
+		opts.MaxLen = 28
+	} else {
+		opts.MaxLen = 42
+	}
+
+	return opts
 }
 
 func (p *Pipeline) validateInput(path string) error {
@@ -276,25 +510,26 @@ func (p *Pipeline) validateInput(path string) error {
 
 	ext := strings.ToLower(filepath.Ext(path))
 	if !supportedVideoExts[ext] {
-		return fmt.Errorf("unsupported video format '%s' (supported: %s)", ext, supportedExtsList())
+		return fmt.Errorf("unsupported media format '%s' (supported: %s)", ext, supportedExtsList())
 	}
 
 	return nil
 }
 
 func (p *Pipeline) transcribe(cmd Command, backend, modelID string) (*TranscriptionResult, error) {
+	return p.transcribeContext(context.Background(), cmd, backend, modelID)
+}
+
+func (p *Pipeline) transcribeContext(ctx context.Context, cmd Command, backend, modelID string) (*TranscriptionResult, error) {
 	switch backend {
 	case "whisper_cpp":
 		transcriber := NewTranscriber(p.svcManager.config.WhisperPort)
 		return transcribeWithOptionalVADRetry(
 			cmd,
 			func(path string, vadFilter bool) (*TranscriptionResult, error) {
-				return transcriber.Transcribe(
-					path,
-					cmd.SourceLang,
-					cmd.BeamSize,
-					vadFilter,
-				)
+				opts := buildTranscribeOptions(cmd, p.svcManager.HasVADModel())
+				opts.VADEnabled = vadFilter && p.svcManager.HasVADModel()
+				return transcriber.Transcribe(ctx, path, opts)
 			},
 			func(reason string) {
 				fmt.Fprintf(
@@ -310,7 +545,14 @@ func (p *Pipeline) transcribe(cmd Command, backend, modelID string) (*Transcript
 		return transcribeWithOptionalVADRetry(
 			cmd,
 			func(path string, vadFilter bool) (*TranscriptionResult, error) {
-				return client.Transcribe(path, cmd.SourceLang, modelID, cmd.BeamSize, vadFilter)
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				result, err := client.Transcribe(path, cmd.SourceLang, modelID, cmd.BeamSize, vadFilter)
+				if err == nil && ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				return result, err
 			},
 			func(reason string) {
 				fmt.Fprintf(
@@ -369,22 +611,42 @@ func (p *Pipeline) translateSegments(backend, modelID string, segments []Segment
 	}
 }
 
-func (p *Pipeline) ensureServices(cmd Command) error {
-	switch resolveASRBackend(cmd) {
-	case "whisper_cpp":
-		sendProgress("starting_services", 25, "Starting whisper-server...")
-		if err := p.svcManager.StartWhisperServer(cmd.ModelSize); err != nil {
-			return fmt.Errorf("whisper-server: %w", err)
+func cuePreview(segments []Segment, limit int) []CueView {
+	if len(segments) > limit {
+		segments = segments[:limit]
+	}
+	out := make([]CueView, 0, len(segments))
+	for _, seg := range segments {
+		text := seg.Text
+		if len(seg.Lines) > 0 {
+			text = strings.Join(seg.Lines, "\n")
 		}
-	default:
-		sendProgress("starting_services", 25, "Starting ml-backend...")
-		if err := p.svcManager.StartMLBackend(); err != nil {
-			return fmt.Errorf("ml-backend: %w", err)
+		out = append(out, CueView{Start: seg.Start, End: seg.End, Text: text})
+	}
+	return out
+}
+
+func sourceLangForTiming(lang string) string {
+	if lang == "" {
+		return "ja"
+	}
+	return lang
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.TrimSpace(*s)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
 		}
 	}
-	sendProgress("starting_services", 100, "All services ready")
-
-	return nil
+	return ""
 }
 
 func ensureASRAssets(searchRoots []string, cmd Command, backend string) error {
