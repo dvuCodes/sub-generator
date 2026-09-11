@@ -179,7 +179,7 @@ func TestBuildMLBackendCommandPrefersDirectPythonWhenScriptExists(t *testing.T) 
 	}
 }
 
-func TestStartMLBackendAllowsHealthyExistingService(t *testing.T) {
+func TestStartMLBackendRejectsHealthyUnmanagedService(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
 			http.NotFound(w, r)
@@ -205,7 +205,11 @@ func TestStartMLBackendAllowsHealthyExistingService(t *testing.T) {
 
 	sm := NewServiceManager(ServiceConfig{SearchRoots: []string{root}, MLBackendPort: port})
 
-	if err := sm.StartMLBackend(); err != nil {
-		t.Fatalf("StartMLBackend() error = %v, want nil for healthy existing service", err)
+	err = sm.StartMLBackend()
+	if err == nil {
+		t.Fatal("StartMLBackend() error = nil, want unmanaged healthy service conflict")
+	}
+	if !strings.Contains(err.Error(), "not managed by SubGen") {
+		t.Fatalf("StartMLBackend() error = %q, want unmanaged service guidance", err.Error())
 	}
 }
