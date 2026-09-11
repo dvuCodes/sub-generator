@@ -1,9 +1,0 @@
-./language.go
-./srt.go
-./ssa.go
-./stl.go
-./subtitles.go
-./teletext.go
-./teletext_charsets.go
-./ttml.go
-./webvtt.go
